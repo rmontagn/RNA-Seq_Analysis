@@ -24,33 +24,85 @@ if (length(new.packages))
 rm(list = ls())
 
 library(edgeR)
+library(Glimma)
+library(biomaRt)
+# library(org.Mm.eg.db)
+# library(GO.db)
+# library(Homo.sapiens)
 # library(DESeq)
 # library(limma)
-library(Glimma)
+
+library(tidyverse)
 library(gplots)
-# library(org.Mm.eg.db)
 library(RColorBrewer)
-# library(Homo.sapiens)
+
 library(shiny)
-library(GO.db)
+
 
 # ============================================================
 # SERVER FUNCTIONS
 # ============================================================
 
 # Get raw counts table
-get.raw.data <- function(counts.file) {
-  seqdata <-
+getRawData <- function(counts.file) {
+  counts.data <-
     read.delim(
       as.character(counts.file),
       stringsAsFactors = FALSE,
-      header = F,
-      sep = "\t"
+      header = T,
+      sep = "\t",
     )
-  colnames(seqdata) <- seqdata[1, ]
-  rownames(seqdata) <- seqdata[, 1]
-  counts.data <- seqdata[-1, -1]
+  # colnames(seqdata) <- seqdata[1, ]
+  rownames(counts.data) <- counts.data[, 1]
+  counts.data <- counts.data[, -1]
   # counts.data <- data.matrix(counts.data)
+  return(as.data.frame(counts.data))
+}
+
+annotateGenes <- function(df) {
+  # Set up connection to ensembl database
+  usedMart=useMart("ENSEMBL_MART_ENSEMBL")
+  # list the available datasets (species)
+  # listDatasets(ensembl) %>%
+  #   filter(str_detect(description, "Human"))
+
+  # Specify a data set to use
+  ensembl = useDataset("hsapiens_gene_ensembl", mart=usedMart)
+
+  # Set the filter type and values
+  filterType <- "ensembl_gene_id"
+  filterValues <- gsub("\\..+", "", rownames(df))
+
+  # Check the available "attributes" - things you can retreive
+  # listAttributes(ensembl)[,c(1,2)] %>%
+  #   head(20)
+
+  # Set the list of attributes
+  attributeNames <- c('ensembl_gene_id', 'external_gene_name')#'ensembl_transcript_id', 'go_id', 'external_gene_name', 'description')
+
+  # Run the query
+  annot <- getBM(attributes=attributeNames,
+                 filters = filterType,
+                 values = filterValues,
+                 mart = ensembl)
+  
+  return(annot)
+}
+
+removeDuplicates <- function(counts.data) {
+  # genes <- gsub("\\..+", "", rownames(counts.data))
+  # isDup <- duplicated(genes)
+  # dup <- results$genes[isDup]
+  # results[results$genes%in%dup,]
+  counts.data$gene <- gsub("\\..+", "", rownames(counts.data))
+  counts.data <- unique(counts.data)
+  toRemove <- grep('PAR_Y', rownames(counts.data))
+  if(!isEmpty(toRemove)) {
+    print(c("to remove: ", toRemove))
+    counts.data <- counts.data[-toRemove,]
+  }
+  rownames(counts.data) <- counts.data$gene
+  counts.data <- counts.data[,-ncol(counts.data)]
   return(counts.data)
 }
 
@@ -70,8 +122,8 @@ remove.lowly.expressed.genes <- function(counts.data) {
 }
 
 # Create dge object (an EdgeR object) from a RNA-seq matrix
-create.dge.object <- function(counts, features) {
-  dgeObj <- DGEList(counts, samples = features)
+create.dge.object <- function(counts, features, annot) {
+  dgeObj <- DGEList(counts[-1,], samples = features, genes = annot[,2])
   return(dgeObj)
 }
 
@@ -100,16 +152,6 @@ analyze.de <- function(dgeObj, feature, condition) {
   lrt <- glmLRT(fit, coef = 2)
   return(lrt)
 }
-
-# dt <- as.data.frame(dt)
-# results <- merge(results, dt, by=0)
-# rownames(results) <- results$Row.names
-# # anno <- as.data.frame(cbind(results$Row.names, results$Row.names))
-# head(results)
-# test <- c("group1", "group2")[group+1]
-# glMDPlot(lrt(), counts = dgeObj(), groups = test,
-#          xlab="logFC", ylab="-log(FDR)", status=results$survival1, anno=results)
-
 
 # ============================================================
 # UI
@@ -165,8 +207,9 @@ ui <- fluidPage(
         )
       ),
       
-      ## Action button
-      actionButton(inputId = "run.de", label = "Differential Expression Analysis")
+      ## Action buttons
+      actionButton(inputId = "run.de", label = "Differential Expression Analysis"),
+      actionButton(inputId = "save.de", label = "Save model")
     )
   ), 
   
@@ -224,7 +267,9 @@ ui <- fluidPage(
       ),
       # htmlOutput(outputId="de.volcano")),
       htmlOutput("glimmaSmear"),
-      htmlOutput("glimmaVolcano")
+      htmlOutput("glimmaVolcano"),
+      tableOutput(outputId = "annotatedGenes")
+
     ))
 ))
                 
@@ -248,17 +293,21 @@ server <- function(input, output, session) {
   
   # The counts table
   counts <- eventReactive(input$explore, {
-    data.matrix(remove.lowly.expressed.genes(get.raw.data(input$counts.file$datapath)))
+    data.matrix(remove.lowly.expressed.genes(removeDuplicates(getRawData(input$counts.file$datapath))))
   })
   
   # The features table
   features <- eventReactive(input$explore, {
-    as.data.frame(get.raw.data(input$features.file$datapath))
+    as.data.frame(getRawData(input$features.file$datapath))
   })
   
   # The list of clinical features
   chlst <- eventReactive(input$explore, {
     make.features.list(as.data.frame(features()))
+  })
+  
+  annotatedGenes <- eventReactive(input$explore, {
+    annotateGenes(counts())
   })
   
   # keep <- eventReactive(input$explore, {
@@ -268,7 +317,7 @@ server <- function(input, output, session) {
   # The dge obect created by EdgeR after loading the data
   # and removing lowly expressed genes
   dgeObj <- eventReactive(input$explore, {
-    create.dge.object(as.matrix(counts()), features())
+    create.dge.object(as.matrix(counts()), features(), annotatedGenes())
   })
   
   dgeObj.norm <- eventReactive(dgeObj(), {
@@ -322,13 +371,32 @@ server <- function(input, output, session) {
     decideTestsDGE(lrt(), p = 0.05, adjust = "BH")
   })
   
-  de.changed.genes <-
+  deChangedGenes <-
     eventReactive(de.decide.test(), {
       rownames(dgeObj.norm()[as.logical(de.decide.test()), ])
     })
   
-  
-  # Pots
+  # getAnnotatedGenes <- function(my_keys, unannotatedDf) {
+  #   rownames(unannotatedDf) <- gsub("\\..*","", rownames(unannotatedDf))
+  #   # Problem: there are duplicate rownames
+  #   ann <- as.data.frame(select(org.Hs.eg.db, keys=my_keys, keytype="ENSEMBL", columns=c("ENSEMBL","SYMBOL","GENENAME", "GO")))
+  #   print(head(ann))
+  #   ann <- ann[ann$ONTOLOGY == "BP",]
+  #   library(dplyr)
+  #   ann <- distinct(ann, ENSEMBL, .keep_all= TRUE)
+  #   detach("package:dplyr", unload=TRUE)
+  #   results.annotated <- merge(ann, unannotatedDf, by.x="ENSEMBL", by.y="ENSEMBL", all.x=T, all.y=T)
+  #   results.annotated <- results.annotated[-nrow(results.annotated),]
+  #   print(head(results.annotated))
+  #   return(results.annotated)
+  # }
+  # 
+
+  observeEvent(input$save.de, {
+    lrt <- lrt()
+    saveRDS(lrt, file="./model.rds")
+  })
+  # PLOTS
   # ============================================================
   
   # Panel Explore
@@ -441,15 +509,23 @@ server <- function(input, output, session) {
   
   # Plot the smear with selected genes
   output$de.smear <- renderPlot({
-    plotSmear(lrt(), de.tags = de.changed.genes(), main = "Smear plot")
+    plotSmear(lrt(), de.tags = deChangedGenes(), main = "Smear plot")
     # points(de.changed.genes()$logCPM, de.changed.genes()$logFC, col="red")#, labels = significant$SYMBOL,col="red")
   })
   observeEvent(input$runGlimmaSmear, {
     output$glimmaSmear <- renderUI({
-      glMDPlot(lrt(), xlab="logFC", ylab="-log(FDR)", status=de.decide.test())
+      glMDPlot(lrt(),
+               counts=counts()[-1,],
+               xlab="logFC", 
+               ylab="-log(FDR)", 
+               status=de.decide.test(), 
+               anno=annotatedGenes(), 
+               groups=as.factor(dgeObj.norm()$samples[, as.character(input$mdsGroupingFeature)]),
+               side.main="external_gene_nama"
+               )
     })
   })
-  
+
   # Plot the volcano plot with selected genes
   output$de.volcano <- renderPlot({
     signif <- -log10(de.df()$FDR)
@@ -461,20 +537,37 @@ server <- function(input, output, session) {
       xlab = "logFC",
       ylab = expression("-log"["10"] * "(FDR)")
     )
-    points(de.df()[de.changed.genes(), "logFC"], -log10(de.df()[de.changed.genes(), "FDR"]), pch = 16, col = "red")
+    points(de.df()[deChangedGenes(), "logFC"], -log10(de.df()[deChangedGenes(), "FDR"]), pch = 16, col = "red")
     abline(v = -2, col = "blue")
     abline(v = 2, col = "blue")
     abline(h = 1.3, col = "green")
   })
+  
   observeEvent(input$runGlimmaVolcano, {
     output$glimmaVolcano <- renderUI({
       df <- de.df()[rownames(de.decide.test()@.Data),]
       signif <- -log10(df$FDR)
-      glXYPlot(df$logFC, y=signif, xlab="logFC", ylab="-log(FDR)", status=de.decide.test())
+      glXYPlot(df$logFC, 
+               y=signif, 
+               xlab="logFC", 
+               ylab="-log(FDR)", 
+               status=de.decide.test()) 
+               # anno=annotatedGenes())
     })
 
   })
+  
+  output$annotatedGenes <- renderTable(head(annotatedGenes()))
 
 }
 
 shinyApp(ui = ui, server = server)
+
+# detags <- rownames(dgeObj)[as.logical(dt)]
+# ann <- as.data.frame(select(org.Mm.eg.db, keys=detags, keytype="ENSEMBL", columns=c("ENSEMBL","SYMBOL","GENENAME", "GO")))
+# ann <- ann[ann$ONTOLOGY == "BP",]
+# library(dplyr)
+# ann <- distinct(ann, ENSEMBL, .keep_all= TRUE)
+# detach("package:dplyr", unload=TRUE)
+# results.annotated <- merge(ann, results, by.x="ENSEMBL", by.y="ENSEMBL", all.x=T, all.y=T)
+# results.annotated <- results.annotated[-nrow(results.annotated),]
