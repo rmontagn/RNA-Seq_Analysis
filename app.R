@@ -32,7 +32,7 @@ library(ggplot2)
 library(RColorBrewer)
 
 library(shiny)
-
+source("modules/dgeObj.R")
 
 # ============================================================
 # SERVER FUNCTIONS
@@ -116,11 +116,6 @@ remove.lowly.expressed.genes <- function(counts.data) {
   return(counts.keep)
 }
 
-# Create dge object (an EdgeR object) from a RNA-seq matrix
-create.dge.object <- function(counts, features, annot) {
-  dgeObj <- DGEList(counts[-1,], samples = features, genes = annot[,2])
-  return(dgeObj)
-}
 
 # Compute log-CPM from a dge object
 log.cpm.distrib <- function(dgeObj) {
@@ -214,7 +209,8 @@ ui <- fluidPage(
         
         ## Action button
         # verbatimTextOutput(outputId="file"),
-        actionButton(inputId = "explore", label = "Exploratory Analysis")
+        actionButton(inputId = "explore", label = "Exploratory Analysis"),
+        computeDgeObjOutput("dgeObjs")
     ),
     
     # Subanel2: Choose the feature and condition to test against the other group(s)
@@ -361,14 +357,17 @@ server <- function(input, output, session) {
   
   # The dge obect created by EdgeR after loading the data
   # and removing lowly expressed genes
-  dgeObj <- eventReactive(input$explore, {
-    create.dge.object(as.matrix(counts()), features(), annotatedGenes())
-  })
-  
-  dgeObj.norm <- eventReactive(dgeObj(), {
-    calcNormFactors(dgeObj())
-  })
-  
+
+  # dgeObj <- eventReactive(input$explore, {
+  #   create.dge.object(as.matrix(counts()), features(), annotatedGenes())
+  # })
+  # 
+  # dgeObjNorm <- eventReactive(dgeObj(), {
+  #   calcNormFactors(dgeObj())
+  # })
+  dgeObjs <- callModule(computeDgeObj, "dgeObjs", reactive(input$explore), counts(), features(), annotatedGenes())
+  dgeObj <- dgeObjs$dgeObj
+  dgeObjNorm <- dgeObjs$dgeObjNorm
   # The logCPM distribution of reads deduced from the dge object
   ## choose a clinical feature to group your data
   # output$features <- renderPrint(chlst())
@@ -383,8 +382,8 @@ server <- function(input, output, session) {
     cpm(dgeObj(), log = TRUE)
   })
   
-  norm.logCPM <- eventReactive(dgeObj.norm(), {
-    cpm(dgeObj.norm(), log = TRUE)
+  norm.logCPM <- eventReactive(dgeObjNorm(), {
+    cpm(dgeObjNorm(), log = TRUE)
   })
   # limma.groups <- reactive({
   #   groups <- as.factor(merge(dge()$sample, features(),by="row.names")[,as.character(input$mdsGroupingFeature)])
@@ -393,17 +392,17 @@ server <- function(input, output, session) {
   observeEvent(input$run.glimma, {
     if (input$mdsGroupingFeature != "") {
       glMDSPlot(
-        dgeObj.norm(),
-        labels = rownames(dgeObj.norm()$samples),
-        groups = dgeObj.norm()$samples[, as.character(input$mdsGroupingFeature)]
+        dgeObjNorm(),
+        labels = rownames(dgeObjNorm()$samples),
+        groups = dgeObjNorm()$samples[, as.character(input$mdsGroupingFeature)]
       )
     } else {
-      glMDSPlot(dgeObj.norm(), labels = rownames(dgeObj.norm()$samples))
+      glMDSPlot(dgeObjNorm(), labels = rownames(dgeObjNorm()$samples))
     }
   })
   
   lrt <- eventReactive(input$run.de, {
-    analyze.de(dgeObj.norm(),
+    analyze.de(dgeObjNorm(),
                mdsGroupingFeature(),
                as.character(input$DE.condition))
   })
@@ -418,7 +417,7 @@ server <- function(input, output, session) {
   
   deChangedGenes <-
     eventReactive(deDecideTest(), {
-      rownames(dgeObj.norm()[as.logical(deDecideTest()), ])
+      rownames(dgeObjNorm()[as.logical(deDecideTest()), ])
     })
 
   # getAnnotatedGenes <- function(my_keys, unannotatedDf) {
@@ -489,8 +488,8 @@ server <- function(input, output, session) {
     if (input$mdsGroupingFeature != "") {
       # plotMDS(dge(), labels=labels, groups=group, folder="mds")
       feat <-
-        as.factor(dgeObj.norm()$samples[, as.character(input$mdsGroupingFeature)])
-      plotMDS(dgeObj.norm(),
+        as.factor(dgeObjNorm()$samples[, as.character(input$mdsGroupingFeature)])
+      plotMDS(dgeObjNorm(),
               pch = 16,
               main = "MDS",
               col = set2.palette[as.numeric(feat)])
@@ -501,7 +500,7 @@ server <- function(input, output, session) {
         legend = levels(as.factor(feat))
       )
     } else {
-      plotMDS(dgeObj.norm(), pch = 16, main = "MDS")
+      plotMDS(dgeObjNorm(), pch = 16, main = "MDS")
     }
   })
   
@@ -575,7 +574,7 @@ server <- function(input, output, session) {
                ylab="-log(FDR)", 
                status=deDecideTest(), 
                anno=annotatedGenes(), 
-               groups=as.factor(dgeObj.norm()$samples[, as.character(input$mdsGroupingFeature)]),
+               groups=as.factor(dgeObjNorm()$samples[, as.character(input$mdsGroupingFeature)]),
                side.main="external_gene_nama"
                )
     })
@@ -600,7 +599,7 @@ server <- function(input, output, session) {
   
   observeEvent(input$runGlimmaVolcano, {
     print(head(de.df()))
-    print(head(dgeObj.norm()$counts))
+    print(head(dgeObjNorm()$counts))
     output$glimmaVolcano <- renderUI({
       ga2=data.frame(GeneID=rownames(de.df()), rownames=rownames(de.df()))
       glXYPlot(x= de.df()$logFC,
