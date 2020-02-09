@@ -1,10 +1,8 @@
 # ==============================
 # Load packages
 # ==============================
-list.of.packages <-
-  c("ggplot2", "Rcpp", "rmarkdown", "gplots", "RColorBrewer")
-new.packages <-
-  list.of.packages[!(list.of.packages %in% installed.packages()[, "Package"])]
+list.of.packages <- c("ggplot2", "Rcpp", "rmarkdown", "gplots", "RColorBrewer")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[, "Package"])]
 if (length(new.packages))
   install.packages(new.packages)
 
@@ -16,8 +14,7 @@ list.of.bioconductor.packages <-
     "org.Hs.eg.db",
     "Homo.sapiens",
     "GO.db")
-new.packages <-
-  list.of.bioconductor.packages[!(list.of.bioconductor.packages %in% installed.packages()[, "Package"])]
+new.packages <- list.of.bioconductor.packages[!(list.of.bioconductor.packages %in% installed.packages()[, "Package"])]
 if (length(new.packages))
   BiocManager::install(new.packages)
 
@@ -26,14 +23,12 @@ rm(list = ls())
 library(edgeR)
 library(Glimma)
 library(biomaRt)
-# library(org.Mm.eg.db)
+library(goseq)
 # library(GO.db)
-# library(Homo.sapiens)
-# library(DESeq)
-# library(limma)
 
 library(tidyverse)
 library(gplots)
+library(ggplot2)
 library(RColorBrewer)
 
 library(shiny)
@@ -97,7 +92,7 @@ removeDuplicates <- function(counts.data) {
   counts.data$gene <- gsub("\\..+", "", rownames(counts.data))
   counts.data <- unique(counts.data)
   toRemove <- grep('PAR_Y', rownames(counts.data))
-  if(!isEmpty(toRemove)) {
+  if(!is_empty(toRemove)) {
     print(c("to remove: ", toRemove))
     counts.data <- counts.data[-toRemove,]
   }
@@ -153,6 +148,38 @@ analyze.de <- function(dgeObj, feature, condition) {
   return(lrt)
 }
 
+# Find the enriched functions for the de genes
+getEnrichedFunctions <- function(df) {
+  genes <- df$FDR < 0.01
+  names(genes) <- rownames(def)
+  pwf <- nullp(genes, "hg19", "ensGene")
+  go.results <- goseq(pwf, "hg19","ensGene", test.cats = c("GO:BP"))
+  enriched.GO <- go.results$category[p.adjust(go.results$over_represented_pvalue,method="BH")<.01]
+  enrichedGoResults <- as.data.frame(merge(go.results, as.data.frame(enriched.GO), by.x="category", by.y="enriched.GO"))
+  enrichedFunctions() %>%
+    top_n(10, wt=-over_represented_pvalue) %>%
+    mutate(hitsPerc=numDEInCat*100/numInCat) %>% test
+
+  return(test)
+}
+
+# Plot the enriched functions with ggplot2
+# plotEnrichedFunctions <- function(enrichedGoResults) {
+#   plot <- enrichedGoResults %>%
+#     top_n(10, wt=-over_represented_pvalue) %>%
+#     mutate(hitsPerc=numDEInCat*100/numInCat) %>%
+#     ggplot(aes(x=hitsPerc,
+#                y=term,
+#                colour=over_represented_pvalue,
+#                size=numDEInCat)) +
+#     geom_point() +
+#     expand_limits(x=0) +
+#     labs(x="Hits (%)", y="GO term", colour="p value", size="Count")
+#   # ggsave(file.path(directory, "most_enriched_functions.png"))
+#   return(plot)
+# }
+
+
 # ============================================================
 # UI
 # ============================================================
@@ -179,7 +206,11 @@ ui <- fluidPage(
         ## Input for the features table
         fileInput(inputId = "features.file",
                   label = "Select the associated clinical features"),
-        # width = "100%"),
+        
+        ## checkbox for early annotation
+        checkboxInput(inputId = "annotateGenes", 
+                      label = "annotated genes (may take some time)",
+                      value = FALSE),
         
         ## Action button
         # verbatimTextOutput(outputId="file"),
@@ -208,8 +239,11 @@ ui <- fluidPage(
       ),
       
       ## Action buttons
-      actionButton(inputId = "run.de", label = "Differential Expression Analysis"),
-      actionButton(inputId = "save.de", label = "Save model")
+        actionButton(inputId = "run.de", label = "Differential Expression Analysis"),
+        actionButton(inputId = "save.de", label = "Save model"),
+        ## Input for the counts table
+        fileInput(inputId = "loadDE",
+                label = "Load model (rds file)")
     )
   ), 
   
@@ -265,10 +299,15 @@ ui <- fluidPage(
       ),
       br(),
       ),
+      br(),
+      # fluidRow(
+      #   plotOutput(outputId = "deEnrichedFunctions")
+      # ),
       # htmlOutput(outputId="de.volcano")),
       htmlOutput("glimmaSmear"),
       htmlOutput("glimmaVolcano"),
-      tableOutput(outputId = "annotatedGenes")
+      tableOutput(outputId = "enrichedFunctions")#,
+      # fluidRow(plotOutput(outputId = "deEnrichedFunctions"))
 
     ))
 ))
@@ -307,7 +346,13 @@ server <- function(input, output, session) {
   })
   
   annotatedGenes <- eventReactive(input$explore, {
-    annotateGenes(counts())
+    if(input$annotateGenes) {
+      print("Sending Query to Biomart")
+      annotateGenes(counts())
+    }
+    else {
+      NULL
+    }
   })
   
   # keep <- eventReactive(input$explore, {
@@ -367,15 +412,15 @@ server <- function(input, output, session) {
     as.data.frame(topTags(lrt(), n = Inf))
   })
   
-  de.decide.test <- eventReactive(de.df(), {
+  deDecideTest <- eventReactive(de.df(), {
     decideTestsDGE(lrt(), p = 0.05, adjust = "BH")
   })
   
   deChangedGenes <-
-    eventReactive(de.decide.test(), {
-      rownames(dgeObj.norm()[as.logical(de.decide.test()), ])
+    eventReactive(deDecideTest(), {
+      rownames(dgeObj.norm()[as.logical(deDecideTest()), ])
     })
-  
+
   # getAnnotatedGenes <- function(my_keys, unannotatedDf) {
   #   rownames(unannotatedDf) <- gsub("\\..*","", rownames(unannotatedDf))
   #   # Problem: there are duplicate rownames
@@ -390,12 +435,21 @@ server <- function(input, output, session) {
   #   print(head(results.annotated))
   #   return(results.annotated)
   # }
-  # 
+
 
   observeEvent(input$save.de, {
     lrt <- lrt()
     saveRDS(lrt, file="./model.rds")
   })
+  
+  # lrt <- eventReactive(input$loadDE, {
+  #   readRDS(lrt, file=input$loadDE$datapath)
+  # })
+  
+    # enrichedFunctions <- eventReactive(deDecideTest(), {
+    #   getEnrichedFunctions(deDecideTest())
+    # })
+
   # PLOTS
   # ============================================================
   
@@ -486,11 +540,12 @@ server <- function(input, output, session) {
   
   ## display the summary of the DE analysis
   output$de.summary <- renderPrint({
-    summary(de.decide.test())
+    summary(deDecideTest())
   })
   
   # Plot the histogram of p-values for DE genes
   output$de.pval <- renderPlot({
+    # print(head(de.df()))
     hist(de.df()$PValue,
          las = 2,
          main = "Histogram of p-values",
@@ -518,7 +573,7 @@ server <- function(input, output, session) {
                counts=counts()[-1,],
                xlab="logFC", 
                ylab="-log(FDR)", 
-               status=de.decide.test(), 
+               status=deDecideTest(), 
                anno=annotatedGenes(), 
                groups=as.factor(dgeObj.norm()$samples[, as.character(input$mdsGroupingFeature)]),
                side.main="external_gene_nama"
@@ -544,21 +599,37 @@ server <- function(input, output, session) {
   })
   
   observeEvent(input$runGlimmaVolcano, {
+    print(head(de.df()))
+    print(head(dgeObj.norm()$counts()))
     output$glimmaVolcano <- renderUI({
-      df <- de.df()[rownames(de.decide.test()@.Data),]
-      signif <- -log10(df$FDR)
-      glXYPlot(df$logFC, 
-               y=signif, 
+      ga2=data.frame(GeneID=rownames(de.df()), rownames=rownames(de.df()))
+      glXYPlot(x= de.df()$logFC,
+               y=-log10(de.df()$FDR),
                xlab="logFC", 
                ylab="-log(FDR)", 
-               status=de.decide.test()) 
-               # anno=annotatedGenes())
+               status=as.numeric(de.df()$FDR <= 0.05), 
+               anno=ga2)
     })
-
+    
+    # glXYPlot(df$logFC,-log10(df$FDR),
+    #          xlab="logFC",
+    #          ylab="-log(FDR)",
+    #          status=as.numeric(df$FDR <= 0.05),
+    #          anno=ga2)
   })
   
-  output$annotatedGenes <- renderTable(head(annotatedGenes()))
+  output$annotatedGenes <- renderTable(head(de.df()))
 
+#   output$deEnrichedFunctions <- renderPlot({
+#     list(ggplot(enrichedFunctions(), aes_string(x=hitsPerc,
+#                  y=term,
+#                  colour=over_represented_pvalue,
+#                  size=numDEInCat) 
+#            +geom_point()
+#            + expand_limits(x=0)
+#            + labs(x="Hits (%)", y="GO term", colour="p value", size="Count")
+#     ))
+#   })
 }
 
 shinyApp(ui = ui, server = server)
