@@ -31,14 +31,22 @@ computeDgeObj <- function(input, output, session, button, counts, features, anno
     }
   })
   
-  
   # Normalize counts  
   dgeObjNorm <- eventReactive(dgeObj(), {
    calcNormFactors(dgeObj())
   })
   
+  # Compute the log-CPM of the counts for each object
+  logCpm <- eventReactive(dgeObj(), {
+    cpm(dgeObj(), log = TRUE)
+  })
+
+  logCpmNorm <- eventReactive(dgeObjNorm(), {
+    cpm(dgeObjNorm(), log = TRUE)
+  })
+  
   # Return results
-  results <- list(dgeObj, dgeObjNorm)
-  names(results) <- c("dgeObj", "dgeObjNorm")
+  results <- list(dgeObj, dgeObjNorm, logCpm, logCpmNorm)
+  names(results) <- c("dgeObj", "dgeObjNorm", "logCpm", "logCpmNorm")
   return(results)
 }

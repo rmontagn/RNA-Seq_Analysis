@@ -33,6 +33,7 @@ library(RColorBrewer)
 
 library(shiny)
 source("modules/dgeObj.R")
+source("modules/mds.R")
 
 # ============================================================
 # SERVER FUNCTIONS
@@ -116,11 +117,10 @@ remove.lowly.expressed.genes <- function(counts.data) {
   return(counts.keep)
 }
 
-
-# Compute log-CPM from a dge object
-log.cpm.distrib <- function(dgeObj) {
-  return(cpm(dgeObj, log = TRUE))
-}
+# # Compute log-CPM from a dge object
+# log.cpm.distrib <- function(dgeObj) {
+#   return(cpm(dgeObj, log = TRUE))
+# }
 
 # Turns a vector of character into a list that can be displayed in a selectInput object
 make.features.list <- function(df) {
@@ -249,19 +249,19 @@ ui <- fluidPage(
     # Subpanel1: Explore the data
     wellPanel(
       "Data Exploration",
-      ## First row: simple size and logCPM distributions
+      ## First row: simple size and logCpm distributions
       fluidRow(column(6,
                       plotOutput(outputId = "lib.sizes")), # , width="90%")),
                column(
                  6,
-                 plotOutput(outputId = "norm.logcpm.distrib") # , width="90%")
+                 plotOutput(outputId = "logCpmNorm.distrib") # , width="90%")
                )),
       br(),
       ## Second row: MDS and most variable genes heatmap
       fluidRow(
         column(6,
                align = "center",
-               fluidRow(plotOutput(outputId = "mds")),
+               fluidRow(mdsOutput("mds")),
                fluidRow(
                  conditionalPanel(
                    condition = "input.explore != 0",
@@ -309,9 +309,9 @@ ui <- fluidPage(
 ))
                 
 
-# ==============================
-# SERVER
-# ==============================
+### -------------------------------------------------------------------- ###
+###                            SERVER
+### -------------------------------------------------------------------- ###
 server <- function(input, output, session) {
   options(shiny.maxRequestSize = 1000 * 1024 ^ 2)
   ## Get some nice colours using Rcolorbrewer
@@ -321,8 +321,7 @@ server <- function(input, output, session) {
   heatmap.colors <-
     colorRampPalette(rdybu.palette)
   
-  # Reactive Values
-  # ============================================================
+
   # The properties of the input count table
   file <- reactive(input$features.file)
   
@@ -365,30 +364,41 @@ server <- function(input, output, session) {
   # dgeObjNorm <- eventReactive(dgeObj(), {
   #   calcNormFactors(dgeObj())
   # })
+  
+  ### Get DGE Object
+  ### -------------------------------------------------------------------- ###
   dgeObjs <- callModule(computeDgeObj, "dgeObjs", reactive(input$explore), counts(), features(), annotatedGenes())
   dgeObj <- dgeObjs$dgeObj
   dgeObjNorm <- dgeObjs$dgeObjNorm
-  # The logCPM distribution of reads deduced from the dge object
-  ## choose a clinical feature to group your data
-  # output$features <- renderPrint(chlst())
+  logCpm <- dgeObjs$logCpm
+  logCpmNorm <- dgeObjs$logCpmNorm
+  
+  
+  ### Compute MDS
+  ### -------------------------------------------------------------------- ###
+  # Update the list of possible grouping features for MDS (to refactor ?)
   observeEvent(chlst(), {
     updateSelectInput(session, "mdsGroupingFeature", choices = chlst())
   })
   
-  mdsGroupingFeature <-
-    reactive(input$mdsGroupingFeature)
-  
-  logCPM <- eventReactive(dgeObj(), {
-    cpm(dgeObj(), log = TRUE)
-  })
-  
-  norm.logCPM <- eventReactive(dgeObjNorm(), {
-    cpm(dgeObjNorm(), log = TRUE)
-  })
+  # logCpm <- eventReactive(dgeObj(), {
+  #   cpm(dgeObj(), log = TRUE)
+  # })
+  # 
+  # logCpmNorm <- eventReactive(dgeObjNorm(), {
+  #   cpm(dgeObjNorm(), log = TRUE)
+  # })
   # limma.groups <- reactive({
   #   groups <- as.factor(merge(dge()$sample, features(),by="row.names")[,as.character(input$mdsGroupingFeature)])
   # })
   #
+  
+  mdsGroupingFeature <- reactive(input$mdsGroupingFeature)
+  
+  # limma plain MDS
+  callModule(mds, "mds", mdsGroupingFeature=reactive(input$mdsGroupingFeature), dgeObjNorm=dgeObjNorm)
+  
+  # Glimma interactive MDS
   observeEvent(input$run.glimma, {
     if (input$mdsGroupingFeature != "") {
       glMDSPlot(
@@ -401,9 +411,12 @@ server <- function(input, output, session) {
     }
   })
   
+  
+  ### Compute differential expression
+  ### -------------------------------------------------------------------- ###
   lrt <- eventReactive(input$run.de, {
     analyze.de(dgeObjNorm(),
-               mdsGroupingFeature(),
+               input$mdsGroupingFeature,
                as.character(input$DE.condition))
   })
   
@@ -468,15 +481,15 @@ server <- function(input, output, session) {
   })
   
   ## log-CPM distribution of libraries
-  output$norm.logcpm.distrib <- renderPlot({
+  output$logCpmNorm.distrib <- renderPlot({
     boxplot(
-      norm.logCPM(),
+      logCpmNorm(),
       xlab = "",
       ylab = "Log2 counts per million",
       las = 2,
-      main = "Boxplots of logCPMs (normalised)"
+      main = "Boxplots of logCpms (normalised)"
     )
-    abline(h = median(norm.logCPM()), col = "blue")
+    abline(h = median(logCpmNorm()), col = "blue")
   })
   
   ## MDS
@@ -484,25 +497,25 @@ server <- function(input, output, session) {
   # output$selected.mds.group <- renderPrint({
   #   as.numeric(as.factor(features()[,as.character(input$mdsGroupingFeature)]))
   # })
-  output$mds <- renderPlot({
-    if (input$mdsGroupingFeature != "") {
-      # plotMDS(dge(), labels=labels, groups=group, folder="mds")
-      feat <-
-        as.factor(dgeObjNorm()$samples[, as.character(input$mdsGroupingFeature)])
-      plotMDS(dgeObjNorm(),
-              pch = 16,
-              main = "MDS",
-              col = set2.palette[as.numeric(feat)])
-      legend(
-        "topleft",
-        col = set2.palette,
-        pch = 16,
-        legend = levels(as.factor(feat))
-      )
-    } else {
-      plotMDS(dgeObjNorm(), pch = 16, main = "MDS")
-    }
-  })
+  # output$mds <- renderPlot({
+  #   if (input$mdsGroupingFeature != "") {
+  #     # plotMDS(dge(), labels=labels, groups=group, folder="mds")
+  #     feat <-
+  #       as.factor(dgeObjNorm()$samples[, as.character(input$mdsGroupingFeature)])
+  #     plotMDS(dgeObjNorm(),
+  #             pch = 16,
+  #             main = "MDS",
+  #             col = set2.palette[as.numeric(feat)])
+  #     legend(
+  #       "topleft",
+  #       col = set2.palette,
+  #       pch = 16,
+  #       legend = levels(as.factor(feat))
+  #     )
+  #   } else {
+  #     plotMDS(dgeObjNorm(), pch = 16, main = "MDS")
+  #   }
+  # })
   
   output$glimma <- renderUI({
     includeHTML("glimma-plots/MDS-Plot.html")
@@ -511,11 +524,11 @@ server <- function(input, output, session) {
   # Plot the most variable genes
   output$most.variable.genes <- renderPlot({
     ## get the 500 most variable genes and their name
-    var_genes <- apply(logCPM(), 1, var)
+    var_genes <- apply(logCpm(), 1, var)
     select_var <-
       names(sort(var_genes, decreasing = TRUE))[1:500]
     highly_variable_lcpm <-
-      logCPM()[select_var, ]
+      logCpm()[select_var, ]
     ## plot them
     heatmap.2(
       highly_variable_lcpm,
@@ -564,7 +577,7 @@ server <- function(input, output, session) {
   # Plot the smear with selected genes
   output$de.smear <- renderPlot({
     plotSmear(lrt(), de.tags = deChangedGenes(), main = "Smear plot")
-    # points(de.changed.genes()$logCPM, de.changed.genes()$logFC, col="red")#, labels = significant$SYMBOL,col="red")
+    # points(de.changed.genes()$logCpm, de.changed.genes()$logFC, col="red")#, labels = significant$SYMBOL,col="red")
   })
   observeEvent(input$runGlimmaSmear, {
     output$glimmaSmear <- renderUI({
