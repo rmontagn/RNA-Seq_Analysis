@@ -600,7 +600,7 @@ server <- function(input, output, session) {
   
   observeEvent(input$runGlimmaVolcano, {
     print(head(de.df()))
-    print(head(dgeObj.norm()$counts()))
+    print(head(dgeObj.norm()$counts))
     output$glimmaVolcano <- renderUI({
       ga2=data.frame(GeneID=rownames(de.df()), rownames=rownames(de.df()))
       glXYPlot(x= de.df()$logFC,
@@ -617,7 +617,6 @@ server <- function(input, output, session) {
     #          status=as.numeric(df$FDR <= 0.05),
     #          anno=ga2)
   })
-  
   output$annotatedGenes <- renderTable(head(de.df()))
 
 #   output$deEnrichedFunctions <- renderPlot({
