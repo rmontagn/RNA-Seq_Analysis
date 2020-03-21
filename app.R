@@ -34,6 +34,8 @@ library(RColorBrewer)
 library(shiny)
 source("modules/dgeObj.R")
 source("modules/mds.R")
+source("modules/heatmap.R")
+source("modules/diffExp.R")
 
 # ============================================================
 # SERVER FUNCTIONS
@@ -130,18 +132,18 @@ make.features.list <- function(df) {
 }
 
 # Deduce LRT model from dge object
-analyze.de <- function(dgeObj, feature, condition) {
-  dgeObj <- estimateCommonDisp(dgeObj)
-  dgeObj <- estimateGLMTrendedDisp(dgeObj)
-  dgeObj <- estimateTagwiseDisp(dgeObj)
-  # plotBCV(dgeObj)
-  feature.vector <- dgeObj$samples[, as.character(feature)]
-  feature.vector <- feature.vector == condition
-  design <- model.matrix(~ feature.vector)
-  fit <- glmFit(dgeObj, design)
-  lrt <- glmLRT(fit, coef = 2)
-  return(lrt)
-}
+# analyze.de <- function(dgeObj, feature, condition) {
+#   dgeObj <- estimateCommonDisp(dgeObj)
+#   dgeObj <- estimateGLMTrendedDisp(dgeObj)
+#   dgeObj <- estimateTagwiseDisp(dgeObj)
+#   # plotBCV(dgeObj)
+#   feature.vector <- dgeObj$samples[, as.character(feature)]
+#   feature.vector <- feature.vector == condition
+#   design <- model.matrix(~ feature.vector)
+#   fit <- glmFit(dgeObj, design)
+#   lrt <- glmLRT(fit, coef = 2)
+#   return(lrt)
+# }
 
 # Find the enriched functions for the de genes
 getEnrichedFunctions <- function(df) {
@@ -175,30 +177,30 @@ getEnrichedFunctions <- function(df) {
 # }
 
 
-# ============================================================
-# UI
-# ============================================================
+### -------------------------------------------------------------------- ###
+###                            UI
+### -------------------------------------------------------------------- ###
 ui <- fluidPage(
-  # Title
-  # ============================================================
+  ### Title
+  ### -------------------------------------------------------------------- ###
   titlePanel("RNA-seq data Analyzer"),
   
-  # Layout (sidebar layout)
-  # ============================================================
+  ### Layout (sidebar layout)
+  ### -------------------------------------------------------------------- ###
   sidebarLayout(
     
     # Sidebar
     # --------------------------------------
     sidebarPanel(
-    # Subpanel1: Input the data
+      # Subpanel1: Input the data
       tags$h4(style="text-align: center", "Load data"),
       inputPanel(
-        ## Input for the counts table
+        ## input for the counts table
         fileInput(inputId = "counts.file",
                   label = "Select a RNA-seq count table \n "),
         # tags$param("Samples must be columns and genes must be rows. The first line must be a header with the sample names. The first columns must contain the gene identifiers."),
         
-        ## Input for the features table
+        ## input for the features table
         fileInput(inputId = "features.file",
                   label = "Select the associated clinical features"),
         
@@ -207,106 +209,108 @@ ui <- fluidPage(
                       label = "annotated genes (may take some time)",
                       value = FALSE),
         
-        ## Action button
-        # verbatimTextOutput(outputId="file"),
+        ## action button
         actionButton(inputId = "explore", label = "Exploratory Analysis"),
         computeDgeObjOutput("dgeObjs")
-    ),
+      ),
+      br(),
     
-    # Subanel2: Choose the feature and condition to test against the other group(s)
-    br(),
-    tags$h4(style="text-align: center", "Differential Expression"),
-    wellPanel(
-      ## Clinical feature for patient groups
-      selectInput(
-        inputId = "mdsGroupingFeature",
-        label = "Choose a clinical feature to group your samples",
-        choices = ""
-      ),
-      
-      ## Radio button to choose condition to test
-      conditionalPanel(
-        condition = "input.mdsGroupingFeature != ''",
-        radioButtons(
-          inputId = "DE.condition",
-          label = "Choose a condition to test against the others",
+      # Subpanel2: Choose the feature and condition to test against the other group(s)
+      tags$h4(style="text-align: center", "Differential Expression"),
+      wellPanel(
+        ## clinical feature for patient groups
+        selectInput(
+          inputId = "mdsGroupingFeature",
+          label = "Choose a clinical feature to group your samples",
           choices = ""
-        )
-      ),
+        ),
       
-      ## Action buttons
-        actionButton(inputId = "run.de", label = "Differential Expression Analysis"),
+        ## radio button to choose condition to test
+        conditionalPanel(
+          condition = "input.mdsGroupingFeature != ''",
+          radioButtons(
+            inputId = "DeCondition",
+            label = "Choose a condition to test against the others",
+            choices = ""
+          )
+        ),
+      
+        ## action buttons
+        actionButton(inputId = "runDe", label = "Differential Expression Analysis"),
         actionButton(inputId = "save.de", label = "Save model"),
+
         ## Input for the counts table
         fileInput(inputId = "loadDE",
-                label = "Load model (rds file)")
+                  label = "Load model (rds file)")
     )
   ), 
   
-  # Main Panel
-  # --------------------------------------
-  mainPanel(
-    # Subpanel1: Explore the data
-    wellPanel(
-      "Data Exploration",
-      ## First row: simple size and logCpm distributions
-      fluidRow(column(6,
-                      plotOutput(outputId = "lib.sizes")), # , width="90%")),
-               column(
-                 6,
-                 plotOutput(outputId = "logCpmNorm.distrib") # , width="90%")
-               )),
-      br(),
-      ## Second row: MDS and most variable genes heatmap
-      fluidRow(
-        column(6,
-               align = "center",
-               fluidRow(mdsOutput("mds")),
-               fluidRow(
-                 conditionalPanel(
-                   condition = "input.explore != 0",
-                   actionButton(inputId = "run.glimma", label = "Glimma MDS")
-                 )
-               )),
-        column(6,
-               plotOutput(outputId = "most.variable.genes"))
-      ),
-      htmlOutput("glimma") # , inline=TRUE)
-    ),
-    
-    # Subpanel2: Differential expression
-    wellPanel(
-      "Differential Gene Expression",
-      fluidRow(verbatimTextOutput(outputId = "de.summary")),
-      br(),
-      fluidRow(column(6,
-                      plotOutput(outputId = "de.pval")),
-               column(6,
-                      plotOutput(outputId = "de.fdr"))),
-      br(),
-      fluidRow(column(
-        6,
-        fluidRow(plotOutput(outputId = "de.smear")),
-        fluidRow(actionButton(inputId = "runGlimmaSmear", label = "Glimma Smear"))
-      ),
-      column(6,
-             fluidRow(plotOutput(outputId = "de.volcano")),
-             fluidRow(actionButton(inputId = "runGlimmaVolcano", label = "Glimma Volcano Plot"))
-      ),
-      br(),
-      ),
-      br(),
-      # fluidRow(
-      #   plotOutput(outputId = "deEnrichedFunctions")
-      # ),
-      # htmlOutput(outputId="de.volcano")),
-      htmlOutput("glimmaSmear"),
-      htmlOutput("glimmaVolcano"),
-      tableOutput(outputId = "enrichedFunctions")#,
-      # fluidRow(plotOutput(outputId = "deEnrichedFunctions"))
-
-    ))
-))
+    # Main Panel
+    # --------------------------------------
+    mainPanel(
+      # Subpanel1: Explore the data
+      wellPanel(
+        "Data Exploration",
+        ## First row: simple size and logCpm distributions
+        fluidRow(column(6,
+                        plotOutput(outputId = "lib.sizes")), # , width="90%")),
+                 column(
+                   6,
+                   plotOutput(outputId = "logCpmNorm.distrib") # , width="90%")
+                 )),
+        br(),
+        ## Second row: MDS and most variable genes heatmap
+        fluidRow(
+          column(6,
+                 align = "center",
+                 fluidRow(mdsOutput("mds")),
+                 fluidRow(
+                   conditionalPanel(
+                     condition = "input.explore != 0",
+                     actionButton(inputId = "run.glimma", label = "Glimma MDS")
+                   )
+                 )),
+          column(6,
+                 mostVariableGenesOutput("heatmap")
+        ),
+        htmlOutput("glimma") # , inline=TRUE)
+      )),
+      
+      # Subpanel2: Differential expression
+      wellPanel(
+        "Differential Gene Expression",
+        computeDiffExpOutput("diffExp"),
+        # br(),
+        # 
+        # fluidRow(
+        #   column(6, plotOutput(outputId = "de.pval")),
+        #   column(6, plotOutput(outputId = "de.fdr"))
+        # ),
+        br(),
+  
+        fluidRow(
+          column(6,
+                 fluidRow(plotOutput(outputId = "de.smear")),
+                 fluidRow(actionButton(inputId = "runGlimmaSmear", label = "Glimma Smear"))
+          ),
+          column(6,
+               fluidRow(plotOutput(outputId = "de.volcano")),
+               fluidRow(actionButton(inputId = "runGlimmaVolcano", label = "Glimma Volcano Plot"))
+          )
+        ),
+        br(),
+        # fluidRow(
+        #   plotOutput(outputId = "deEnrichedFunctions")
+        # ),
+        # htmlOutput(outputId="de.volcano")),
+        htmlOutput("glimmaSmear"),
+        htmlOutput("glimmaVolcano"),
+        tableOutput(outputId = "enrichedFunctions")#,
+        # fluidRow(plotOutput(outputId = "deEnrichedFunctions"))
+      )
+    )
+  )
+)
                 
 
 ### -------------------------------------------------------------------- ###
@@ -373,7 +377,7 @@ server <- function(input, output, session) {
   logCpm <- dgeObjs$logCpm
   logCpmNorm <- dgeObjs$logCpmNorm
   
-  
+    
   ### Compute MDS
   ### -------------------------------------------------------------------- ###
   # Update the list of possible grouping features for MDS (to refactor ?)
@@ -381,21 +385,10 @@ server <- function(input, output, session) {
     updateSelectInput(session, "mdsGroupingFeature", choices = chlst())
   })
   
-  # logCpm <- eventReactive(dgeObj(), {
-  #   cpm(dgeObj(), log = TRUE)
-  # })
-  # 
-  # logCpmNorm <- eventReactive(dgeObjNorm(), {
-  #   cpm(dgeObjNorm(), log = TRUE)
-  # })
-  # limma.groups <- reactive({
-  #   groups <- as.factor(merge(dge()$sample, features(),by="row.names")[,as.character(input$mdsGroupingFeature)])
-  # })
-  #
-  
+  # Get the grouping feature for MDS and next differential expression analysis
   mdsGroupingFeature <- reactive(input$mdsGroupingFeature)
   
-  # limma plain MDS
+  # Limma plain MDS
   callModule(mds, "mds", mdsGroupingFeature=reactive(input$mdsGroupingFeature), dgeObjNorm=dgeObjNorm)
   
   # Glimma interactive MDS
@@ -411,27 +404,52 @@ server <- function(input, output, session) {
     }
   })
   
+  ### Compute 500 most variable genes
+  ### -------------------------------------------------------------------- ###
+  callModule(mostVariableGenes, "heatmap", logCpmNorm)
   
+  # logCpm <- eventReactive(dgeObj(), {
+  #   cpm(dgeObj(), log = TRUE)
+  # })
+  # 
+  # logCpmNorm <- eventReactive(dgeObjNorm(), {
+  #   cpm(dgeObjNorm(), log = TRUE)
+  # })
+  # limma.groups <- reactive({
+  #   groups <- as.factor(merge(dge()$sample, features(),by="row.names")[,as.character(input$mdsGroupingFeature)])
+  # })
+  #
+
   ### Compute differential expression
   ### -------------------------------------------------------------------- ###
-  lrt <- eventReactive(input$run.de, {
-    analyze.de(dgeObjNorm(),
-               input$mdsGroupingFeature,
-               as.character(input$DE.condition))
+  # Update the list of possible conditions for the selected grouping feature (to refactor ?)
+  observeEvent(mdsGroupingFeature(), {
+    updateRadioButtons(session, "DeCondition", choices = unique(dgeObj()$samples[, as.character(input$mdsGroupingFeature)]))
   })
   
-  de.df <- eventReactive(lrt(), {
-    as.data.frame(topTags(lrt(), n = Inf))
-  })
-  
-  deDecideTest <- eventReactive(de.df(), {
-    decideTestsDGE(lrt(), p = 0.05, adjust = "BH")
-  })
-  
-  deChangedGenes <-
-    eventReactive(deDecideTest(), {
-      rownames(dgeObjNorm()[as.logical(deDecideTest()), ])
-    })
+  # Compute differential expression, plot the summary of results and the histograms of p-values
+  dgeResults <- callModule(computeDiffExp, "diffExp", reactive(input$runDe), dgeObjNorm, mdsGroupingFeature, reactive(input$DeCondition))
+  lrtModel <- dgeResults$lrtModel
+  dgeDf <- dgeResults$dgeDf
+  dgeDecide <- dgeResults$dgeDecide
+  # lrt <- eventReactive(input$run.de, {
+  #   analyze.de(dgeObjNorm(),
+  #              input$mdsGroupingFeature,
+  #              as.character(input$DE.condition))
+  # })
+  # 
+  # de.df <- eventReactive(lrt(), {
+  #   as.data.frame(topTags(lrt(), n = Inf))
+  # })
+  # 
+  # deDecideTest <- eventReactive(de.df(), {
+  #   decideTestsDGE(lrt(), p = 0.05, adjust = "BH")
+  # })
+  # 
+  # deChangedGenes <-
+  #   eventReactive(deDecideTest(), {
+  #     rownames(dgeObjNorm()[as.logical(deDecideTest()), ])
+  #   })
 
   # getAnnotatedGenes <- function(my_keys, unannotatedDf) {
   #   rownames(unannotatedDf) <- gsub("\\..*","", rownames(unannotatedDf))
@@ -520,59 +538,37 @@ server <- function(input, output, session) {
   output$glimma <- renderUI({
     includeHTML("glimma-plots/MDS-Plot.html")
   })
-  
-  # Plot the most variable genes
-  output$most.variable.genes <- renderPlot({
-    ## get the 500 most variable genes and their name
-    var_genes <- apply(logCpm(), 1, var)
-    select_var <-
-      names(sort(var_genes, decreasing = TRUE))[1:500]
-    highly_variable_lcpm <-
-      logCpm()[select_var, ]
-    ## plot them
-    heatmap.2(
-      highly_variable_lcpm,
-      col = rev(heatmap.colors(50)),
-      trace = "none",
-      main = "Top 500 most variable genes across samples",
-      # ColSideColors=col.cell,
-      scale = "row"
-    )
-  })
-  
+
   #-- Panel Differential Expression ---------------------------------------
   
   ## update the possible conditions to choose for DE
   # observeEvent(mdsGroupingFeature(), {
   #   updateRadioButtons(session, "DE.control", choices=unique(dgeObj()$samples[,as.character(input$mdsGroupingFeature)]))
   # })
-  observeEvent(mdsGroupingFeature(), {
-    updateRadioButtons(session, "DE.condition", choices = unique(dgeObj()$samples[, as.character(input$mdsGroupingFeature)]))
-  })
   
-  ## display the summary of the DE analysis
-  output$de.summary <- renderPrint({
-    summary(deDecideTest())
-  })
+  # ## display the summary of the DE analysis
+  # output$de.summary <- renderPrint({
+  #   summary(deDecideTest())
+  # })
   
   # Plot the histogram of p-values for DE genes
-  output$de.pval <- renderPlot({
-    # print(head(de.df()))
-    hist(de.df()$PValue,
-         las = 2,
-         main = "Histogram of p-values",
-         xlab = "p-values")
-  })
-  
-  ## plot the histogram of FDR
-  output$de.fdr <- renderPlot({
-    hist(de.df()$FDR,
-         las = 2,
-         main = "Histogram of FDR",
-         xlab = "FDR")
-    abline(v = 0.05, col = "blue")
-    
-  })
+  # output$de.pval <- renderPlot({
+  #   # print(head(de.df()))
+  #   hist(de.df()$PValue,
+  #        las = 2,
+  #        main = "Histogram of p-values",
+  #        xlab = "p-values")
+  # })
+  # 
+  # ## plot the histogram of FDR
+  # output$de.fdr <- renderPlot({
+  #   hist(de.df()$FDR,
+  #        las = 2,
+  #        main = "Histogram of FDR",
+  #        xlab = "FDR")
+  #   abline(v = 0.05, col = "blue")
+  #   
+  # })
   
   # Plot the smear with selected genes
   output$de.smear <- renderPlot({
