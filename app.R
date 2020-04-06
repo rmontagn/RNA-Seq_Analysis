@@ -36,6 +36,8 @@ source("modules/dgeObj.R")
 source("modules/mds.R")
 source("modules/heatmap.R")
 source("modules/diffExp.R")
+source("modules/smear.R")
+source("modules/volcano.R")
 
 # ============================================================
 # SERVER FUNCTIONS
@@ -242,8 +244,8 @@ ui <- fluidPage(
         ## Input for the counts table
         fileInput(inputId = "loadDE",
                   label = "Load model (rds file)")
-    )
-  ), 
+      )
+    ), 
   
     # Main Panel
     # --------------------------------------
@@ -266,44 +268,48 @@ ui <- fluidPage(
                  fluidRow(mdsOutput("mds")),
                  fluidRow(
                    conditionalPanel(
-                     condition = "input.explore != 0",
+                     condition = "input.explore > 0",
                      actionButton(inputId = "run.glimma", label = "Glimma MDS")
                    )
-                 )),
+                 )
+              ),
           column(6,
                  mostVariableGenesOutput("heatmap")
-        ),
+          ),
         htmlOutput("glimma") # , inline=TRUE)
-      )),
+        )
+      ),
       
       # Subpanel2: Differential expression
       wellPanel(
         "Differential Gene Expression",
-        computeDiffExpOutput("diffExp"),
+        conditionalPanel(
+          condition = "input.runDe > 0",
+          computeDiffExpOutput("diffExp"),
         # br(),
         # 
         # fluidRow(
         #   column(6, plotOutput(outputId = "de.pval")),
         #   column(6, plotOutput(outputId = "de.fdr"))
         # ),
-        br(),
+          br()
+        ),
   
         fluidRow(
-          column(6,
-                 fluidRow(plotOutput(outputId = "de.smear")),
-                 fluidRow(actionButton(inputId = "runGlimmaSmear", label = "Glimma Smear"))
-          ),
-          column(6,
-               fluidRow(plotOutput(outputId = "de.volcano")),
-               fluidRow(actionButton(inputId = "runGlimmaVolcano", label = "Glimma Volcano Plot"))
-          )
+          column(6, computePlotSmearOutput("smear")),
+          column(6, computeVolcanoPlotOutput("volcano"))
         ),
-        br(),
+        #   column(6,
+        #        fluidRow(plotOutput(outputId = "de.volcano")),
+        #        fluidRow(actionButton(inputId = "runGlimmaVolcano", label = "Glimma Volcano Plot"))
+        #   )
+        # ),
+        # br(),
         # fluidRow(
         #   plotOutput(outputId = "deEnrichedFunctions")
         # ),
         # htmlOutput(outputId="de.volcano")),
-        htmlOutput("glimmaSmear"),
+        # htmlOutput("glimmaSmear"),
         htmlOutput("glimmaVolcano"),
         tableOutput(outputId = "enrichedFunctions")#,
         # fluidRow(plotOutput(outputId = "deEnrichedFunctions"))
@@ -322,8 +328,7 @@ server <- function(input, output, session) {
   rdybu.palette <- brewer.pal(11, "RdYlBu")
   set2.palette <- brewer.pal(8, "Set2")
   mds.colors <- colorRampPalette(set2.palette)
-  heatmap.colors <-
-    colorRampPalette(rdybu.palette)
+  heatmap.colors <- colorRampPalette(rdybu.palette)
   
 
   # The properties of the input count table
@@ -404,6 +409,11 @@ server <- function(input, output, session) {
     }
   })
   
+  output$glimma <- renderUI({
+    includeHTML("glimma-plots/MDS-Plot.html")
+  })
+  
+  
   ### Compute 500 most variable genes
   ### -------------------------------------------------------------------- ###
   callModule(mostVariableGenes, "heatmap", logCpmNorm)
@@ -428,10 +438,16 @@ server <- function(input, output, session) {
   })
   
   # Compute differential expression, plot the summary of results and the histograms of p-values
-  dgeResults <- callModule(computeDiffExp, "diffExp", reactive(input$runDe), dgeObjNorm, mdsGroupingFeature, reactive(input$DeCondition))
-  lrtModel <- dgeResults$lrtModel
-  dgeDf <- dgeResults$dgeDf
-  dgeDecide <- dgeResults$dgeDecide
+  rv <- callModule(computeDiffExp, "diffExp", reactive(input$runDe), dgeObjNorm, mdsGroupingFeature, reactive(input$DeCondition))
+  
+  
+  ### Compute smear and volcano plot
+  ### -------------------------------------------------------------------- ###
+  callModule(computePlotSmear, "smear", reactive(rv$lrtModel), reactive(rv$dgeChangedGenes), counts, reactive(rv$dgeDecide), dgeObjNorm, reactive(input$mdsGroupingFeature))
+  callModule(computeVolcanoPlot, "volcano", reactive(rv$dgeDf), reactive(rv$dgeChangedGenes))
+  # lrtModel <- dgeResults$lrtModel
+  # dgeDf <- dgeResults$dgeDf
+  # dgeDecide <- dgeResults$dgeDecide
   # lrt <- eventReactive(input$run.de, {
   #   analyze.de(dgeObjNorm(),
   #              input$mdsGroupingFeature,
@@ -513,7 +529,7 @@ server <- function(input, output, session) {
   ## MDS
   ## compute and plot the MDS
   # output$selected.mds.group <- renderPrint({
-  #   as.numeric(as.factor(features()[,as.character(input$mdsGroupingFeature)]))
+  #   as.numeric(as.factor(features()[,as.character       (input$mdsGroupingFeature)]))
   # })
   # output$mds <- renderPlot({
   #   if (input$mdsGroupingFeature != "") {
@@ -535,10 +551,6 @@ server <- function(input, output, session) {
   #   }
   # })
   
-  output$glimma <- renderUI({
-    includeHTML("glimma-plots/MDS-Plot.html")
-  })
-
   #-- Panel Differential Expression ---------------------------------------
   
   ## update the possible conditions to choose for DE
@@ -571,44 +583,42 @@ server <- function(input, output, session) {
   # })
   
   # Plot the smear with selected genes
-  output$de.smear <- renderPlot({
-    plotSmear(lrt(), de.tags = deChangedGenes(), main = "Smear plot")
-    # points(de.changed.genes()$logCpm, de.changed.genes()$logFC, col="red")#, labels = significant$SYMBOL,col="red")
-  })
-  observeEvent(input$runGlimmaSmear, {
-    output$glimmaSmear <- renderUI({
-      glMDPlot(lrt(),
-               counts=counts()[-1,],
-               xlab="logFC", 
-               ylab="-log(FDR)", 
-               status=deDecideTest(), 
-               anno=annotatedGenes(), 
-               groups=as.factor(dgeObjNorm()$samples[, as.character(input$mdsGroupingFeature)]),
-               side.main="external_gene_nama"
-               )
-    })
-  })
+  # output$de.smear <- renderPlot({
+  #   plotSmear(dgeResults$lrtModel, de.tags = dgeResults$dgeDecide, main = "Smear plot")
+  #   # points(de.changed.genes()$logCpm, de.changed.genes()$logFC, col="red")#, labels = significant$SYMBOL,col="red")
+  # })
+  # observeEvent(input$runGlimmaSmear, {
+  #   output$glimmaSmear <- renderUI({
+  #     glMDPlot(lrt(),
+  #              counts=counts()[-1,],
+  #              xlab="logFC", 
+  #              ylab="-log(FDR)", 
+  #              status=deDecideTest(), 
+  #              anno=annotatedGenes(), 
+  #              groups=as.factor(dgeObjNorm()$samples[, as.character(input$mdsGroupingFeature)]),
+  #              side.main="external_gene_nama"
+  #              )
+  #   })
+  # })
 
   # Plot the volcano plot with selected genes
-  output$de.volcano <- renderPlot({
-    signif <- -log10(de.df()$FDR)
-    plot(
-      de.df()$logFC,
-      signif,
-      pch = 16,
-      main = "Volcano plot",
-      xlab = "logFC",
-      ylab = expression("-log"["10"] * "(FDR)")
-    )
-    points(de.df()[deChangedGenes(), "logFC"], -log10(de.df()[deChangedGenes(), "FDR"]), pch = 16, col = "red")
-    abline(v = -2, col = "blue")
-    abline(v = 2, col = "blue")
-    abline(h = 1.3, col = "green")
-  })
-  
+  # output$de.volcano <- renderPlot({
+  #   signif <- -log10(de.df()$FDR)
+  #   plot(
+  #     de.df()$logFC,
+  #     signif,
+  #     pch = 16,
+  #     main = "Volcano plot",
+  #     xlab = "logFC",
+  #     ylab = expression("-log"["10"] * "(FDR)")
+  #   )
+  #   points(de.df()[deChangedGenes(), "logFC"], -log10(de.df()[deChangedGenes(), "FDR"]), pch = 16, col = "red")
+  #   abline(v = -2, col = "blue")
+  #   abline(v = 2, col = "blue")
+  #   abline(h = 1.3, col = "green")
+  # })
+
   observeEvent(input$runGlimmaVolcano, {
-    print(head(de.df()))
-    print(head(dgeObjNorm()$counts))
     output$glimmaVolcano <- renderUI({
       ga2=data.frame(GeneID=rownames(de.df()), rownames=rownames(de.df()))
       glXYPlot(x= de.df()$logFC,
