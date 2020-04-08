@@ -310,7 +310,7 @@ ui <- fluidPage(
         # ),
         # htmlOutput(outputId="de.volcano")),
         # htmlOutput("glimmaSmear"),
-        htmlOutput("glimmaVolcano"),
+        # htmlOutput("glimmaVolcano"),
         tableOutput(outputId = "enrichedFunctions")#,
         # fluidRow(plotOutput(outputId = "deEnrichedFunctions"))
       )
@@ -331,6 +331,8 @@ server <- function(input, output, session) {
   heatmap.colors <- colorRampPalette(rdybu.palette)
   
 
+  ### Download data 
+  ### -------------------------------------------------------------------- ###
   # The properties of the input count table
   file <- reactive(input$features.file)
   
@@ -440,11 +442,17 @@ server <- function(input, output, session) {
   # Compute differential expression, plot the summary of results and the histograms of p-values
   rv <- callModule(computeDiffExp, "diffExp", reactive(input$runDe), dgeObjNorm, mdsGroupingFeature, reactive(input$DeCondition))
   
+  # Save the lrt model
+  observeEvent(input$save.de, {
+    lrt <- lrt()
+    saveRDS(lrt, file="./model.rds")
+  })
   
   ### Compute smear and volcano plot
   ### -------------------------------------------------------------------- ###
   callModule(computePlotSmear, "smear", reactive(rv$lrtModel), reactive(rv$dgeChangedGenes), counts, reactive(rv$dgeDecide), dgeObjNorm, reactive(input$mdsGroupingFeature))
   callModule(computeVolcanoPlot, "volcano", reactive(rv$dgeDf), reactive(rv$dgeChangedGenes))
+  
   # lrtModel <- dgeResults$lrtModel
   # dgeDf <- dgeResults$dgeDf
   # dgeDecide <- dgeResults$dgeDecide
@@ -483,10 +491,10 @@ server <- function(input, output, session) {
   # }
 
 
-  observeEvent(input$save.de, {
-    lrt <- lrt()
-    saveRDS(lrt, file="./model.rds")
-  })
+  # observeEvent(input$save.de, {
+  #   lrt <- lrt()
+  #   saveRDS(lrt, file="./model.rds")
+  # })
   
   # lrt <- eventReactive(input$loadDE, {
   #   readRDS(lrt, file=input$loadDE$datapath)
@@ -618,23 +626,23 @@ server <- function(input, output, session) {
   #   abline(h = 1.3, col = "green")
   # })
 
-  observeEvent(input$runGlimmaVolcano, {
-    output$glimmaVolcano <- renderUI({
-      ga2=data.frame(GeneID=rownames(de.df()), rownames=rownames(de.df()))
-      glXYPlot(x= de.df()$logFC,
-               y=-log10(de.df()$FDR),
-               xlab="logFC", 
-               ylab="-log(FDR)", 
-               status=as.numeric(de.df()$FDR <= 0.05), 
-               anno=ga2)
-    })
+  # observeEvent(input$runGlimmaVolcano, {
+  #   output$glimmaVolcano <- renderUI({  
+  #     ga2=data.frame(GeneID=rownames(de.df()), rownames=rownames(de.df()))
+  #     glXYPlot(x= de.df()$logFC,
+  #              y=-log10(de.df()$FDR),
+  #              xlab="logFC", 
+  #              ylab="-log(FDR)", 
+  #              status=as.numeric(de.df()$FDR <= 0.05), 
+  #              anno=ga2)
+  #   })
     
     # glXYPlot(df$logFC,-log10(df$FDR),
     #          xlab="logFC",
     #          ylab="-log(FDR)",
     #          status=as.numeric(df$FDR <= 0.05),
     #          anno=ga2)
-  })
+  # })
   output$annotatedGenes <- renderTable(head(de.df()))
 
 #   output$deEnrichedFunctions <- renderPlot({

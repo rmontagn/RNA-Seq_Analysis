@@ -41,7 +41,7 @@ computePlotSmear <- function(input, output, session, lrtModel, dgeChangedGenes, 
                xlab="logFC",
                ylab="-log(FDR)",
                status=dgeDecide(),
-               # anno=annotatedGenes(),
+               #anno=annotatedGenes(),
                groups=as.factor(dgeObjNorm()$samples[, as.character(mdsGroupingFeature())]),
                side.main="external_gene_nama"
       )
