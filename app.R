@@ -32,6 +32,7 @@ library(ggplot2)
 library(RColorBrewer)
 
 library(shiny)
+source("modules/getData.R")
 source("modules/dgeObj.R")
 source("modules/mds.R")
 source("modules/heatmap.R")
@@ -43,21 +44,21 @@ source("modules/volcano.R")
 # SERVER FUNCTIONS
 # ============================================================
 
-# Get raw counts table
-getRawData <- function(counts.file) {
-  counts.data <-
-    read.delim(
-      as.character(counts.file),
-      stringsAsFactors = FALSE,
-      header = T,
-      sep = "\t",
-    )
-  # colnames(seqdata) <- seqdata[1, ]
-  rownames(counts.data) <- counts.data[, 1]
-  counts.data <- counts.data[, -1]
-  # counts.data <- data.matrix(counts.data)
-  return(as.data.frame(counts.data))
-}
+# # Get raw counts table
+# getRawData <- function(countsFile) {
+#   countsData <-
+#     read.delim(
+#       as.character(countsFile),
+#       stringsAsFactors = FALSE,
+#       header = T,
+#       sep = "\t",
+#     )
+#   # colnames(seqdata) <- seqdata[1, ]
+#   rownames(countsData) <- counts.data[, 1]
+#   countsData <- countsData[, -1]
+#   # counts.data <- data.matrix(counts.data)
+#   return(as.data.frame(countsData))
+# }
 
 annotateGenes <- function(df) {
   # Set up connection to ensembl database
@@ -89,37 +90,37 @@ annotateGenes <- function(df) {
   return(annot)
 }
 
-removeDuplicates <- function(counts.data) {
-  # genes <- gsub("\\..+", "", rownames(counts.data))
-  # isDup <- duplicated(genes)
-  # dup <- results$genes[isDup]
-  # results[results$genes%in%dup,]
-  counts.data$gene <- gsub("\\..+", "", rownames(counts.data))
-  counts.data <- unique(counts.data)
-  toRemove <- grep('PAR_Y', rownames(counts.data))
-  if(!is_empty(toRemove)) {
-    print(c("to remove: ", toRemove))
-    counts.data <- counts.data[-toRemove,]
-  }
-  rownames(counts.data) <- counts.data$gene
-  counts.data <- counts.data[,-ncol(counts.data)]
-  return(counts.data)
-}
+# removeDuplicates <- function(counts.data) {
+#   # genes <- gsub("\\..+", "", rownames(counts.data))
+#   # isDup <- duplicated(genes)
+#   # dup <- results$genes[isDup]
+#   # results[results$genes%in%dup,]
+#   counts.data$gene <- gsub("\\..+", "", rownames(counts.data))
+#   counts.data <- unique(counts.data)
+#   toRemove <- grep('PAR_Y', rownames(counts.data))
+#   if(!is_empty(toRemove)) {
+#     print(c("to remove: ", toRemove))
+#     counts.data <- counts.data[-toRemove,]
+#   }
+#   rownames(counts.data) <- counts.data$gene
+#   counts.data <- counts.data[,-ncol(counts.data)]
+#   return(counts.data)
+# }
 
 # Remove lowly expressed genes
-remove.lowly.expressed.genes <- function(counts.data) {
-  ## remove lowly expressed genes
-  ## here genes that have 4 counts or less in at least 5% of patients
-  nb.patients <- as.integer(dim(counts.data)[2])
-  thresh <- counts.data > 4
-  # rowSums(thresh)
-  keep <- rowSums(thresh) >= floor(0.05 * nb.patients)
-  # summary(keep)
-  counts.keep <- counts.data[keep, ]
-  # logcounts.keep <- log(counts.keep)
-  
-  return(counts.keep)
-}
+# remove.lowly.expressed.genes <- function(counts.data) {
+#   ## remove lowly expressed genes
+#   ## here genes that have 4 counts or less in at least 5% of patients
+#   nb.patients <- as.integer(dim(counts.data)[2])
+#   thresh <- counts.data > 4
+#   # rowSums(thresh)
+#   keep <- rowSums(thresh) >= floor(0.05 * nb.patients)
+#   # summary(keep)
+#   counts.keep <- counts.data[keep, ]
+#   # logcounts.keep <- log(counts.keep)
+#   
+#   return(counts.keep)
+# }
 
 # # Compute log-CPM from a dge object
 # log.cpm.distrib <- function(dgeObj) {
@@ -127,11 +128,11 @@ remove.lowly.expressed.genes <- function(counts.data) {
 # }
 
 # Turns a vector of character into a list that can be displayed in a selectInput object
-make.features.list <- function(df) {
-  chlst <- c("", colnames(df))
-  names(chlst) <- c("", colnames(df))
-  return(chlst)
-}
+  # make.features.list <- function(df) {
+  #   chlst <- c("", colnames(df))
+  #   names(chlst) <- c("", colnames(df))
+  #   return(chlst)
+  # }
 
 # Deduce LRT model from dge object
 # analyze.de <- function(dgeObj, feature, condition) {
@@ -197,23 +198,8 @@ ui <- fluidPage(
       # Subpanel1: Input the data
       tags$h4(style="text-align: center", "Load data"),
       inputPanel(
-        ## input for the counts table
-        fileInput(inputId = "counts.file",
-                  label = "Select a RNA-seq count table \n "),
-        # tags$param("Samples must be columns and genes must be rows. The first line must be a header with the sample names. The first columns must contain the gene identifiers."),
-        
-        ## input for the features table
-        fileInput(inputId = "features.file",
-                  label = "Select the associated clinical features"),
-        
-        ## checkbox for early annotation
-        checkboxInput(inputId = "annotateGenes", 
-                      label = "annotated genes (may take some time)",
-                      value = FALSE),
-        
-        ## action button
-        actionButton(inputId = "explore", label = "Exploratory Analysis"),
-        computeDgeObjOutput("dgeObjs")
+        getModuleDataInput("inputData"),
+        computeDgeObjOutput("dgeObjs") # does not display anything but needed to make module dge.R work.
       ),
       br(),
     
@@ -331,28 +317,36 @@ server <- function(input, output, session) {
   heatmap.colors <- colorRampPalette(rdybu.palette)
   
 
-  ### Download data 
+  ### Get the data
   ### -------------------------------------------------------------------- ###
-  # The properties of the input count table
-  file <- reactive(input$features.file)
+  results <- callModule(getModuleData, "inputData")
+  counts <- results$counts
+  features <- results$features
+  chlst <- results$chlst
+  inputExplore <- results$inputExplore
+  inputAnnotatedGenes <- results$inputAnnotatedGenes
   
-  # The counts table
-  counts <- eventReactive(input$explore, {
-    data.matrix(remove.lowly.expressed.genes(removeDuplicates(getRawData(input$counts.file$datapath))))
-  })
   
-  # The features table
-  features <- eventReactive(input$explore, {
-    as.data.frame(getRawData(input$features.file$datapath))
-  })
+    # The properties of the input count table
+  #   file <- reactive(input$features.file)
+  #   
+  #   # The counts table
+  #   counts <- eventReactive(input$explore, {
+  #     data.matrix(remove.lowly.expressed.genes(removeDuplicates(getRawData(input$countsFile$datapath))))
+  #   })
+  # 
+  # # The features table
+  # features <- eventReactive(input$explore, {
+  #   as.data.frame(getRawData(input$features.file$datapath))
+  # })
   
-  # The list of clinical features
-  chlst <- eventReactive(input$explore, {
-    make.features.list(as.data.frame(features()))
-  })
+  # # The list of clinical features
+  # chlst <- eventReactive(input$explore, {
+  #   make.features.list(as.data.frame(features()))
+  # })
   
-  annotatedGenes <- eventReactive(input$explore, {
-    if(input$annotateGenes) {
+  annotatedGenes <- eventReactive(inputExplore(), {
+    if(inputAnnotatedGenes()) {
       print("Sending Query to Biomart")
       annotateGenes(counts())
     }
@@ -378,7 +372,7 @@ server <- function(input, output, session) {
   
   ### Get DGE Object
   ### -------------------------------------------------------------------- ###
-  dgeObjs <- callModule(computeDgeObj, "dgeObjs", reactive(input$explore), counts(), features(), annotatedGenes())
+  dgeObjs <- callModule(computeDgeObj, "dgeObjs", inputExplore, counts(), features(), annotatedGenes())
   dgeObj <- dgeObjs$dgeObj
   dgeObjNorm <- dgeObjs$dgeObjNorm
   logCpm <- dgeObjs$logCpm
