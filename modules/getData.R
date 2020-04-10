@@ -87,30 +87,22 @@ getModuleDataInput <- function(id) {
 ### -------------------------------------------------------------------- ###
 getModuleData <- function(input, output, session) {
   
-  # The properties of the input count table
-  # file <- reactive(input$featuresFile)
-  observeEvent(input$explore, {
-    print(input$countsFile$datapath)
-  })
-
   # The counts table
   counts <- eventReactive(input$explore, {
-    print("get the counts")
     data.matrix(removeLowlyExpressedGenes(removeDuplicates(getRawData(input$countsFile$datapath))))
   })  
  
   # The features table
   features <- eventReactive(input$explore, {
-    print("get the features")
     as.data.frame(getRawData(input$featuresFile$datapath))
   })
   
-  # The list of clinical features
+  # Deduce the list of clinical features
   chlst <- eventReactive(input$explore, {
-    print("make list of features")
     makeFeaturesList(as.data.frame(features()))
   })
-  
+
+  # Return results
   results <- list(counts, features, chlst, reactive(input$explore), reactive(input$annotateGenes))
   names(results) <- c("counts", "features", "chlst", "inputExplore", "inputAnnotatedGenes")
   return(results)

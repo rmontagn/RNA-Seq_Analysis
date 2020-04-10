@@ -51,7 +51,7 @@ mds <- function(input, output, session, mdsGroupingFeature, dgeObjNorm) {
                   dgeObjNorm()$samples$group
                   )
                 )]
-              )
+      )
     }
   })
 }

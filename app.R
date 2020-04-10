@@ -33,6 +33,7 @@ library(RColorBrewer)
 
 library(shiny)
 source("modules/getData.R")
+source("modules/annotate.R")
 source("modules/dgeObj.R")
 source("modules/mds.R")
 source("modules/heatmap.R")
@@ -60,35 +61,35 @@ source("modules/volcano.R")
 #   return(as.data.frame(countsData))
 # }
 
-annotateGenes <- function(df) {
-  # Set up connection to ensembl database
-  usedMart=useMart("ENSEMBL_MART_ENSEMBL")
-  # list the available datasets (species)
-  # listDatasets(ensembl) %>%
-  #   filter(str_detect(description, "Human"))
-
-  # Specify a data set to use
-  ensembl = useDataset("hsapiens_gene_ensembl", mart=usedMart)
-
-  # Set the filter type and values
-  filterType <- "ensembl_gene_id"
-  filterValues <- gsub("\\..+", "", rownames(df))
-
-  # Check the available "attributes" - things you can retreive
-  # listAttributes(ensembl)[,c(1,2)] %>%
-  #   head(20)
-
-  # Set the list of attributes
-  attributeNames <- c('ensembl_gene_id', 'external_gene_name')#'ensembl_transcript_id', 'go_id', 'external_gene_name', 'description')
-
-  # Run the query
-  annot <- getBM(attributes=attributeNames,
-                 filters = filterType,
-                 values = filterValues,
-                 mart = ensembl)
-  
-  return(annot)
-}
+# annotateGenes <- function(df) {
+#   # Set up connection to ensembl database
+#   usedMart=useMart("ENSEMBL_MART_ENSEMBL")
+#   # list the available datasets (species)
+#   # listDatasets(ensembl) %>%
+#   #   filter(str_detect(description, "Human"))
+# 
+#   # Specify a data set to use
+#   ensembl = useDataset("hsapiens_gene_ensembl", mart=usedMart)
+# 
+#   # Set the filter type and values
+#   filterType <- "ensembl_gene_id"
+#   filterValues <- gsub("\\..+", "", rownames(df))
+# 
+#   # Check the available "attributes" - things you can retreive
+#   # listAttributes(ensembl)[,c(1,2)] %>%
+#   #   head(20)
+# 
+#   # Set the list of attributes
+#   attributeNames <- c('ensembl_gene_id', 'external_gene_name')#'ensembl_transcript_id', 'go_id', 'external_gene_name', 'description')
+# 
+#   # Run the query
+#   annot <- getBM(attributes=attributeNames,
+#                  filters = filterType,
+#                  values = filterValues,
+#                  mart = ensembl)
+#   
+#   return(annot)
+# }
 
 # removeDuplicates <- function(counts.data) {
 #   # genes <- gsub("\\..+", "", rownames(counts.data))
@@ -184,36 +185,31 @@ getEnrichedFunctions <- function(df) {
 ###                            UI
 ### -------------------------------------------------------------------- ###
 ui <- fluidPage(
-  ### Title
-  ### -------------------------------------------------------------------- ###
-  titlePanel("RNA-seq data Analyzer"),
   
-  ### Layout (sidebar layout)
-  ### -------------------------------------------------------------------- ###
+  titlePanel("RNA-seq data Analyzer"),
+
   sidebarLayout(
-    
-    # Sidebar
-    # --------------------------------------
+    ### Sidebar
+    ### -------------------------------------------------------------------- ###
     sidebarPanel(
       # Subpanel1: Input the data
+      # --------------------------------------
       tags$h4(style="text-align: center", "Load data"),
-      inputPanel(
-        getModuleDataInput("inputData"),
-        computeDgeObjOutput("dgeObjs") # does not display anything but needed to make module dge.R work.
-      ),
+      inputPanel(getModuleDataInput("inputData")),
+      genesAnnotationInput("annot"), # just here to make module annotate.R work
       br(),
     
       # Subpanel2: Choose the feature and condition to test against the other group(s)
+      # --------------------------------------
       tags$h4(style="text-align: center", "Differential Expression"),
       wellPanel(
-        ## clinical feature for patient groups
+        # Clinical feature for patient groups
         selectInput(
           inputId = "mdsGroupingFeature",
           label = "Choose a clinical feature to group your samples",
           choices = ""
         ),
-      
-        ## radio button to choose condition to test
+        # Radio button to choose condition to test
         conditionalPanel(
           condition = "input.mdsGroupingFeature != ''",
           radioButtons(
@@ -223,31 +219,27 @@ ui <- fluidPage(
           )
         ),
       
-        ## action buttons
+        # Action buttons
         actionButton(inputId = "runDe", label = "Differential Expression Analysis"),
         actionButton(inputId = "save.de", label = "Save model"),
 
-        ## Input for the counts table
+        # Input for the counts table
         fileInput(inputId = "loadDE",
                   label = "Load model (rds file)")
       )
     ), 
   
-    # Main Panel
-    # --------------------------------------
+    ### Main Panel
+    ### -------------------------------------------------------------------- ###
     mainPanel(
       # Subpanel1: Explore the data
+      # --------------------------------------
       wellPanel(
         "Data Exploration",
-        ## First row: simple size and logCpm distributions
-        fluidRow(column(6,
-                        plotOutput(outputId = "lib.sizes")), # , width="90%")),
-                 column(
-                   6,
-                   plotOutput(outputId = "logCpmNorm.distrib") # , width="90%")
-                 )),
+        # First row: simple size and logCpm distributions
+        computeDgeObjOutput("dgeObjs"),
         br(),
-        ## Second row: MDS and most variable genes heatmap
+        # Second row: MDS and most variable genes heatmap
         fluidRow(
           column(6,
                  align = "center",
@@ -259,31 +251,30 @@ ui <- fluidPage(
                    )
                  )
               ),
-          column(6,
-                 mostVariableGenesOutput("heatmap")
-          ),
+          column(6, mostVariableGenesOutput("heatmap")),
         htmlOutput("glimma") # , inline=TRUE)
         )
       ),
       
       # Subpanel2: Differential expression
+      # --------------------------------------
       wellPanel(
         "Differential Gene Expression",
-        conditionalPanel(
-          condition = "input.runDe > 0",
-          computeDiffExpOutput("diffExp"),
-        # br(),
-        # 
-        # fluidRow(
-        #   column(6, plotOutput(outputId = "de.pval")),
-        #   column(6, plotOutput(outputId = "de.fdr"))
-        # ),
-          br()
+        fluidRow(
+          conditionalPanel(
+            condition = "input.runDe > 0",
+            computeDiffExpOutput("diffExp"),
+            br()
+          )
         ),
   
         fluidRow(
-          column(6, computePlotSmearOutput("smear")),
-          column(6, computeVolcanoPlotOutput("volcano"))
+          conditionalPanel(
+            condition = "input.runDe > 0",
+            column(6, computePlotSmearOutput("smear")),
+            column(6, computeVolcanoPlotOutput("volcano")),
+            br()
+          )
         ),
         #   column(6,
         #        fluidRow(plotOutput(outputId = "de.volcano")),
@@ -326,8 +317,11 @@ server <- function(input, output, session) {
   inputExplore <- results$inputExplore
   inputAnnotatedGenes <- results$inputAnnotatedGenes
   
+  ### Annotate the gene id
+  ### -------------------------------------------------------------------- ###
+  annotatedGenes <- callModule(genesAnnotation, "annot", inputExplore, inputAnnotatedGenes, counts)
   
-    # The properties of the input count table
+  # The properties of the input count table
   #   file <- reactive(input$features.file)
   #   
   #   # The counts table
@@ -345,15 +339,15 @@ server <- function(input, output, session) {
   #   make.features.list(as.data.frame(features()))
   # })
   
-  annotatedGenes <- eventReactive(inputExplore(), {
-    if(inputAnnotatedGenes()) {
-      print("Sending Query to Biomart")
-      annotateGenes(counts())
-    }
-    else {
-      NULL
-    }
-  })
+  # annotatedGenes <- eventReactive(inputExplore(), {
+  #   if(inputAnnotatedGenes()) {
+  #     print("Sending Query to Biomart")
+  #     annotateGenes(counts())
+  #   }
+  #   else {
+  #     NULL
+  #   }
+  # })
   
   # keep <- eventReactive(input$explore, {
   #   intersect(names(counts()), names(t(features())))
@@ -505,29 +499,7 @@ server <- function(input, output, session) {
   # --------------------------------------
   # Plot the counts table file propertiess
   # output$file <- renderPrint(file())
-  
-  ## size of libraries
-  output$lib.sizes <- renderPlot({
-    barplot(
-      dgeObj()$samples$lib.size,
-      names = colnames(dgeObj()),
-      las = 2,
-      main = "Barplot of library sizes"
-    )
-  })
-  
-  ## log-CPM distribution of libraries
-  output$logCpmNorm.distrib <- renderPlot({
-    boxplot(
-      logCpmNorm(),
-      xlab = "",
-      ylab = "Log2 counts per million",
-      las = 2,
-      main = "Boxplots of logCpms (normalised)"
-    )
-    abline(h = median(logCpmNorm()), col = "blue")
-  })
-  
+
   ## MDS
   ## compute and plot the MDS
   # output$selected.mds.group <- renderPrint({
