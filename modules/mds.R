@@ -18,6 +18,12 @@ mdsOutput <- function(id) {
   ns <- NS(id)
   
   plotOutput(ns("mds"))
+  tagList(
+    fluidRow(plotOutput(ns("mds"))),
+    br(),
+    fluidRow(actionButton(ns("runGlimma"), label = "Glimma MDS")),
+    htmlOutput(ns("glimmaMDS"))
+  )
 }
 
 
@@ -53,5 +59,22 @@ mds <- function(input, output, session, mdsGroupingFeature, dgeObjNorm) {
                 )]
       )
     }
+  })
+  
+  # Glimma interactive MDS
+  observeEvent(input$runGlimma, {
+    if (mdsGroupingFeature() != "") {
+      glMDSPlot(
+        dgeObjNorm(),
+        labels = rownames(dgeObjNorm()$samples),
+        groups = dgeObjNorm()$samples[, as.character(mdsGroupingFeature())]
+      )
+    } else {
+      glMDSPlot(dgeObjNorm(), labels = rownames(dgeObjNorm()$samples))
+    }
+  })
+  
+  output$glimmaMDS <- renderUI({
+    includeHTML("glimma-plots/MDS-Plot.html")
   })
 }

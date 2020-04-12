@@ -151,17 +151,21 @@ source("modules/volcano.R")
 
 # Find the enriched functions for the de genes
 getEnrichedFunctions <- function(df) {
-  genes <- df$FDR < 0.01
-  names(genes) <- rownames(def)
-  pwf <- nullp(genes, "hg19", "ensGene")
-  go.results <- goseq(pwf, "hg19","ensGene", test.cats = c("GO:BP"))
-  enriched.GO <- go.results$category[p.adjust(go.results$over_represented_pvalue,method="BH")<.01]
-  enrichedGoResults <- as.data.frame(merge(go.results, as.data.frame(enriched.GO), by.x="category", by.y="enriched.GO"))
-  enrichedFunctions() %>%
-    top_n(10, wt=-over_represented_pvalue) %>%
-    mutate(hitsPerc=numDEInCat*100/numInCat) %>% test
-
-  return(test)
+  observeEvent(df(),{
+    df <- isolate(df())
+    genes <- df$FDR < 0.01
+    names(genes) <- row.names(df)
+    pwf <- nullp(genes, "hg19", "ensGene")
+    go.results <- goseq(pwf, "hg19","ensGene", test.cats = c("GO:BP"))
+    print(length(p.adjust(go.results$over_represented_pvalue,method="BH")))
+    enriched.GO <- go.results$category[p.adjust(go.results$over_represented_pvalue,method="BH")<.01]
+    enrichedGoResults <- as.data.frame(merge(go.results, as.data.frame(enriched.GO), by.x="category", by.y="enriched.GO"))
+    getEnrichedFunctions() %>%
+      top_n(10, wt=-over_represented_pvalue) %>%
+      mutate(hitsPerc=numDEInCat*100/numInCat) %>% test
+  
+    return(test)
+  })
 }
 
 # Plot the enriched functions with ggplot2
@@ -204,28 +208,16 @@ ui <- fluidPage(
       tags$h4(style="text-align: center", "Differential Expression"),
       wellPanel(
         # Clinical feature for patient groups
-        selectInput(
-          inputId = "mdsGroupingFeature",
-          label = "Choose a clinical feature to group your samples",
-          choices = ""
-        ),
+        selectInput(inputId = "mdsGroupingFeature", label = "Choose a clinical feature to group your samples", choices = ""),
         # Radio button to choose condition to test
-        conditionalPanel(
-          condition = "input.mdsGroupingFeature != ''",
-          radioButtons(
-            inputId = "DeCondition",
-            label = "Choose a condition to test against the others",
-            choices = ""
-          )
-        ),
+        conditionalPanel(condition = "input.mdsGroupingFeature != ''",radioButtons(inputId = "DeCondition", label = "Choose a condition to test against the others", choices = "")),
       
         # Action buttons
         actionButton(inputId = "runDe", label = "Differential Expression Analysis"),
         actionButton(inputId = "save.de", label = "Save model"),
 
-        # Input for the counts table
-        fileInput(inputId = "loadDE",
-                  label = "Load model (rds file)")
+        # Input for loading data saved as a rds file
+        fileInput(inputId = "loadDE", label = "Load model (rds file)")
       )
     ), 
   
@@ -241,18 +233,14 @@ ui <- fluidPage(
         br(),
         # Second row: MDS and most variable genes heatmap
         fluidRow(
-          column(6,
-                 align = "center",
-                 fluidRow(mdsOutput("mds")),
-                 fluidRow(
-                   conditionalPanel(
-                     condition = "input.explore > 0",
-                     actionButton(inputId = "run.glimma", label = "Glimma MDS")
-                   )
-                 )
-              ),
+          column(6, align = "center", fluidRow(mdsOutput("mds"))),
+                 # fluidRow(
+                 #   conditionalPanel(
+                 #     condition = "input.explore > 0",
+                 #     actionButton(inputId = "run.glimma", label = "Glimma MDS")
+                 #   )
           column(6, mostVariableGenesOutput("heatmap")),
-        htmlOutput("glimma") # , inline=TRUE)
+        # htmlOutput("glimma") # , inline=TRUE)
         )
       ),
       
@@ -260,22 +248,16 @@ ui <- fluidPage(
       # --------------------------------------
       wellPanel(
         "Differential Gene Expression",
-        fluidRow(
-          conditionalPanel(
-            condition = "input.runDe > 0",
-            computeDiffExpOutput("diffExp"),
-            br()
-          )
-        ),
-  
-        fluidRow(
-          conditionalPanel(
-            condition = "input.runDe > 0",
+        conditionalPanel(
+          condition = "input.runDe > 0",
+          fluidRow(computeDiffExpOutput("diffExp")),
+          br(),
+          fluidRow(
             column(6, computePlotSmearOutput("smear")),
-            column(6, computeVolcanoPlotOutput("volcano")),
-            br()
-          )
-        ),
+            column(6, computeVolcanoPlotOutput("volcano"))
+          ),
+        )
+      ),
         #   column(6,
         #        fluidRow(plotOutput(outputId = "de.volcano")),
         #        fluidRow(actionButton(inputId = "runGlimmaVolcano", label = "Glimma Volcano Plot"))
@@ -288,9 +270,8 @@ ui <- fluidPage(
         # htmlOutput(outputId="de.volcano")),
         # htmlOutput("glimmaSmear"),
         # htmlOutput("glimmaVolcano"),
-        tableOutput(outputId = "enrichedFunctions")#,
-        # fluidRow(plotOutput(outputId = "deEnrichedFunctions"))
-      )
+        # tableOutput(outputId = "enrichedFunctions")#,
+        fluidRow(plotOutput(outputId = "deEnrichedFunctions"))
     )
   )
 )
@@ -386,22 +367,22 @@ server <- function(input, output, session) {
   # Limma plain MDS
   callModule(mds, "mds", mdsGroupingFeature=reactive(input$mdsGroupingFeature), dgeObjNorm=dgeObjNorm)
   
-  # Glimma interactive MDS
-  observeEvent(input$run.glimma, {
-    if (input$mdsGroupingFeature != "") {
-      glMDSPlot(
-        dgeObjNorm(),
-        labels = rownames(dgeObjNorm()$samples),
-        groups = dgeObjNorm()$samples[, as.character(input$mdsGroupingFeature)]
-      )
-    } else {
-      glMDSPlot(dgeObjNorm(), labels = rownames(dgeObjNorm()$samples))
-    }
-  })
-  
-  output$glimma <- renderUI({
-    includeHTML("glimma-plots/MDS-Plot.html")
-  })
+  # # Glimma interactive MDS
+  # observeEvent(input$run.glimma, {
+  #   if (input$mdsGroupingFeature != "") {
+  #     glMDSPlot(
+  #       dgeObjNorm(),
+  #       labels = rownames(dgeObjNorm()$samples),
+  #       groups = dgeObjNorm()$samples[, as.character(input$mdsGroupingFeature)]
+  #     )
+  #   } else {
+  #     glMDSPlot(dgeObjNorm(), labels = rownames(dgeObjNorm()$samples))
+  #   }
+  # })
+  # 
+  # output$glimma <- renderUI({
+  #   includeHTML("glimma-plots/MDS-Plot.html")
+  # })
   
   
   ### Compute 500 most variable genes
@@ -609,18 +590,18 @@ server <- function(input, output, session) {
     #          status=as.numeric(df$FDR <= 0.05),
     #          anno=ga2)
   # })
-  output$annotatedGenes <- renderTable(head(de.df()))
+  # output$annotatedGenes <- renderTable(head(deDf()))
 
-#   output$deEnrichedFunctions <- renderPlot({
-#     list(ggplot(enrichedFunctions(), aes_string(x=hitsPerc,
-#                  y=term,
-#                  colour=over_represented_pvalue,
-#                  size=numDEInCat) 
-#            +geom_point()
-#            + expand_limits(x=0)
-#            + labs(x="Hits (%)", y="GO term", colour="p value", size="Count")
-#     ))
-#   })
+  output$deEnrichedFunctions <- renderPlot({
+    list(ggplot(getEnrichedFunctions(reactive(rv$dgeDf)), aes_string(x=hitsPerc,
+                 y=term,
+                 colour=over_represented_pvalue,
+                 size=numDEInCat)
+           +geom_point()
+           + expand_limits(x=0)
+           + labs(x="Hits (%)", y="GO term", colour="p value", size="Count")
+    ))
+  })
 }
 
 shinyApp(ui = ui, server = server)
