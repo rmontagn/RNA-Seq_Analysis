@@ -1,5 +1,5 @@
 ### -------------------------------------------------------------------- ###
-###                            MODULE DGEOBJ
+###                            MODULE MDS
 ### -------------------------------------------------------------------- ###
 library(edgeR)
 library(RColorBrewer)
@@ -17,7 +17,7 @@ mdsOutput <- function(id) {
   # Create a namespace function using the provided id
   ns <- NS(id)
   
-  plotOutput(ns("mds"))
+  # plotOutput(ns("mds"))
   tagList(
     fluidRow(plotOutput(ns("mds"))),
     br(),

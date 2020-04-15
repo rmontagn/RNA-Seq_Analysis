@@ -40,6 +40,7 @@ source("modules/heatmap.R")
 source("modules/diffExp.R")
 source("modules/smear.R")
 source("modules/volcano.R")
+source("modules/enrichment.R")
 
 # ============================================================
 # SERVER FUNCTIONS
@@ -149,24 +150,18 @@ source("modules/volcano.R")
 #   return(lrt)
 # }
 
-# Find the enriched functions for the de genes
-getEnrichedFunctions <- function(df) {
-  observeEvent(df(),{
-    df <- isolate(df())
-    genes <- df$FDR < 0.01
-    names(genes) <- row.names(df)
-    pwf <- nullp(genes, "hg19", "ensGene")
-    go.results <- goseq(pwf, "hg19","ensGene", test.cats = c("GO:BP"))
-    print(length(p.adjust(go.results$over_represented_pvalue,method="BH")))
-    enriched.GO <- go.results$category[p.adjust(go.results$over_represented_pvalue,method="BH")<.01]
-    enrichedGoResults <- as.data.frame(merge(go.results, as.data.frame(enriched.GO), by.x="category", by.y="enriched.GO"))
-    getEnrichedFunctions() %>%
-      top_n(10, wt=-over_represented_pvalue) %>%
-      mutate(hitsPerc=numDEInCat*100/numInCat) %>% test
-  
-    return(test)
-  })
-}
+# # Find the enriched functions for the de genes
+# getEnrichedFunctions <- function(df) {
+#   genes <- df$FDR < 0.01
+#   names(genes) <- row.names(df)
+#   pwf <- nullp(genes, "hg19", "ensGene")
+#   go.results <- goseq(pwf, "hg19","ensGene", test.cats = c("GO:BP"))
+#   # print(length(p.adjust(go.results$over_represented_pvalue,method="BH")))
+#   enriched.GO <- go.results$category[p.adjust(go.results$over_represented_pvalue,method="BH")<.01]
+#   enrichedGoResults <- as.data.frame(merge(go.results, as.data.frame(enriched.GO), by.x="category", by.y="enriched.GO"))
+#   print(enrichedGoResults)
+#   return (enrichedGoResults)
+# }
 
 # Plot the enriched functions with ggplot2
 # plotEnrichedFunctions <- function(enrichedGoResults) {
@@ -271,7 +266,7 @@ ui <- fluidPage(
         # htmlOutput("glimmaSmear"),
         # htmlOutput("glimmaVolcano"),
         # tableOutput(outputId = "enrichedFunctions")#,
-        fluidRow(plotOutput(outputId = "deEnrichedFunctions"))
+      functionEnrichmentOutput("enrichedFunctions")
     )
   )
 )
@@ -421,6 +416,10 @@ server <- function(input, output, session) {
   ### -------------------------------------------------------------------- ###
   callModule(computePlotSmear, "smear", reactive(rv$lrtModel), reactive(rv$dgeChangedGenes), counts, reactive(rv$dgeDecide), dgeObjNorm, reactive(input$mdsGroupingFeature))
   callModule(computeVolcanoPlot, "volcano", reactive(rv$dgeDf), reactive(rv$dgeChangedGenes))
+  
+  ### Compute functions enrichment
+  ### -------------------------------------------------------------------- ###
+  callModule(functionEnrichment, "enrichedFunctions", rv$dgeDf)
   
   # lrtModel <- dgeResults$lrtModel
   # dgeDf <- dgeResults$dgeDf
@@ -591,17 +590,28 @@ server <- function(input, output, session) {
     #          anno=ga2)
   # })
   # output$annotatedGenes <- renderTable(head(deDf()))
-
-  output$deEnrichedFunctions <- renderPlot({
-    list(ggplot(getEnrichedFunctions(reactive(rv$dgeDf)), aes_string(x=hitsPerc,
-                 y=term,
-                 colour=over_represented_pvalue,
-                 size=numDEInCat)
-           +geom_point()
-           + expand_limits(x=0)
-           + labs(x="Hits (%)", y="GO term", colour="p value", size="Count")
-    ))
-  })
+#   observeEvent(input$enrichment, {
+#     output$deEnrichedFunctions <- renderPlot({
+#       getEnrichedFunctions(rv$dgeDf) %>%
+#         top_n(10, wt=-over_represented_pvalue) %>%
+#         mutate(hitsPerc=numDEInCat*100/numInCat) %>%
+#         ggplot(aes(x=hitsPerc, 
+#                    y=term, 
+#                    colour=over_represented_pvalue, 
+#                    size=numDEInCat)) +
+#         geom_point() +
+#         expand_limits(x=0) +
+#         labs(x="Hits (%)", y="GO term", colour="p value", size="Count")
+#       # list(ggplot(getEnrichedFunctions(reactive(rv$dgeDf)), aes_string(x=hitsPerc,
+#       #              y=term,
+#       #              colour=over_represented_pvalue,
+#       #              size=numDEInCat)
+#       #        +geom_point()
+#       #        + expand_limits(x=0)
+#       #        + labs(x="Hits (%)", y="GO term", colour="p value", size="Count")
+#       # ))
+#     })
+#   })
 }
 
 shinyApp(ui = ui, server = server)
