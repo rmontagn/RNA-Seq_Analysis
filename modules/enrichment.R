@@ -23,19 +23,16 @@ functionEnrichmentOutput <- function(id) {
   # Create a namespace function using the provided id
   ns <- NS(id)
   
-  tagList(
-    fluidRow(actionButton(ns("enrichment"), label="Function Enrichment")),
-    fluidRow(plotOutput(ns("deEnrichedFunctions")))
-  )
+  fluidRow(plotOutput(ns("deEnrichedFunctions")))
 }
 
 
 ### SERVER
 ### -------------------------------------------------------------------- ###
-functionEnrichment <- function(input, output, session, dgeDf) {
+functionEnrichment <- function(input, output, session, button, dgeDf) {
   
   # Output the function enrichment
-  observeEvent(input$enrichment, {
+  observeEvent(button(), {
     output$deEnrichedFunctions <- renderPlot({
       getEnrichedFunctions(dgeDf) %>%
         top_n(10, wt=-over_represented_pvalue) %>%

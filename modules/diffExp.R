@@ -14,7 +14,7 @@ computeDiffExpOutput <- function(id) {
   ns <- NS(id)
   
   tagList(
-    fluidRow(verbatimTextOutput(ns("deSummary"))),
+    fluidRow(column(12, verbatimTextOutput(ns("deSummary")))),
     br(),
     fluidRow(
       column(6, plotOutput(ns("dePval"))),

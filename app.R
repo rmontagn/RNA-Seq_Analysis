@@ -213,6 +213,13 @@ ui <- fluidPage(
 
         # Input for loading data saved as a rds file
         fileInput(inputId = "loadDE", label = "Load model (rds file)")
+      ),
+      
+      # Subpanel3: trigger function enrichment analysis
+      # --------------------------------------
+      tags$h4(style="text-align: center", "Functional Enrichment"),
+      wellPanel(
+        conditionalPanel(condition = "input.runDe > 0", actionButton("enrichment", label="Function Enrichment"))
       )
     ), 
   
@@ -228,7 +235,7 @@ ui <- fluidPage(
         br(),
         # Second row: MDS and most variable genes heatmap
         fluidRow(
-          column(6, align = "center", fluidRow(mdsOutput("mds"))),
+          column(6, align = "center", mdsOutput("mds")),
                  # fluidRow(
                  #   conditionalPanel(
                  #     condition = "input.explore > 0",
@@ -266,7 +273,13 @@ ui <- fluidPage(
         # htmlOutput("glimmaSmear"),
         # htmlOutput("glimmaVolcano"),
         # tableOutput(outputId = "enrichedFunctions")#,
-      functionEnrichmentOutput("enrichedFunctions")
+      wellPanel(
+        "Functional Enrichment",
+        conditionalPanel(
+          condition = "input.enrichment > 0",
+          functionEnrichmentOutput("enrichedFunctions")
+        )
+      )
     )
   )
 )
@@ -419,7 +432,7 @@ server <- function(input, output, session) {
   
   ### Compute functions enrichment
   ### -------------------------------------------------------------------- ###
-  callModule(functionEnrichment, "enrichedFunctions", rv$dgeDf)
+  callModule(functionEnrichment, "enrichedFunctions", reactive(input$enrichment), rv$dgeDf)
   
   # lrtModel <- dgeResults$lrtModel
   # dgeDf <- dgeResults$dgeDf
